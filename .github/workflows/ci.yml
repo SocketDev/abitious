@@ -3,9 +3,10 @@ name: ⚡ CI
 # Dependencies: none — self-contained.
 #
 # Every push/PR: zizmor audits the workflows, then a matrix builds + tests the
-# workspace on each publish platform's OS family (fmt / clippy -D warnings /
+# workspace on the Linux + macOS OS families (fmt / clippy -D warnings /
 # `cargo test --workspace --locked`, incl. the frozen pressed-data interop
 # tripwire), and a dedicated job enforces the POSITIVE dependency-budget allowlist.
+# (The full 8-target cross-build lives in github-release.yml, not here.)
 #
 # The dep budget (CLAUDE.md / fleet discipline): the crates SHIPPED to users — the
 # self-extracting stub (`abitious-stub`) and the reader/ABI it links (`abitious-decmpfs`
@@ -78,10 +79,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Tier-1 CI OSes (native, no cross C toolchain), matching build.yml's tier-1
-        # target set. Windows is deferred with the musl targets until the Windows
-        # build is validated green (windows-sys features are in place; tracked follow-up),
-        # then add windows-latest back here + promote win32 in targets.mts.
+        # Two OS FAMILIES, one runner each — this is deliberately NOT the full tier-1
+        # / release target set. fmt + clippy + `cargo test --workspace` run on Linux
+        # (ubuntu-latest) and macOS (macos-14), the two families whose cfg-selected
+        # fscompress backends differ. The arch variant (arm64) and libc variant (musl)
+        # don't change the cfg-selected code path, so re-running the suite on them would
+        # just double CI for no added signal; they — and Windows — are cross-COMPILED
+        # (not unit-tested) in the release build (github-release.yml). Windows has its
+        # own cfg backend not yet exercised by tests on any runner: a tracked follow-up
+        # (add windows-latest here once it's validated green).
         os: [ubuntu-latest, macos-14]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20

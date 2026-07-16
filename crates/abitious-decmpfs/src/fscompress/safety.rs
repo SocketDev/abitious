@@ -20,13 +20,11 @@ pub(crate) fn apply_guarded<B: Backend>(backend: &B, path: &Path) -> Result<Outc
 
     let before = verify::on_disk_bytes(path)?;
 
-    // INV-loadable: snapshot the native-binary magic so we can confirm the file
-    // still loads after compression (a post-compress *content* hash is vacuous —
-    // the kernel decompresses on read, so it always matches).
-    let magic_before = verify::magic_prefix(path)?;
-
-    // INV-rollback: keep the original bytes so a backend that produces a non-loadable
-    // result can be reverted. Cheap next to the one-time warm decompress.
+    // INV-loadable + INV-rollback: keep the FULL pre-apply bytes. A native read decompresses
+    // transparently, so reading the file back and comparing it to this snapshot is the
+    // authoritative post-apply oracle (NOT vacuous — it is exactly the check the one-pass
+    // write path uses, and it catches a deep corruption a 4-byte magic prefix would miss).
+    // The snapshot doubles as the rollback source if a broken backend wrecked the file.
     let snapshot = read_snapshot(path)?;
 
     // INV-fail-soft: EACCES/EPERM/EROFS -> Skipped(PermissionDenied); EBUSY/ETXTBSY
@@ -40,12 +38,13 @@ pub(crate) fn apply_guarded<B: Backend>(backend: &B, path: &Path) -> Result<Outc
         return Err(err);
     }
 
-    verify_loadable_or_restore(backend, path, before, magic_before, &snapshot)
+    verify_loadable_or_restore(backend, path, before, &snapshot)
 }
 
 /// Read the whole file for the rollback snapshot. Extracted + `coverage(off)`: a read
-/// failing HERE — immediately after `magic_prefix` already opened and read the same file —
-/// is a defensive I/O-race arm with no deterministic in-process trigger.
+/// failing HERE — immediately after `is_already_compressed` and `on_disk_bytes` already
+/// opened/stat'd the same file — is a defensive I/O-race arm with no deterministic
+/// in-process trigger.
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn read_snapshot(path: &Path) -> Result<Vec<u8>, Error> {
     std::fs::read(path).map_err(|source| Error::Io {
@@ -54,19 +53,20 @@ fn read_snapshot(path: &Path) -> Result<Vec<u8>, Error> {
     })
 }
 
-/// Post-apply gate for the in-place path: if the file no longer carries its
-/// native-binary magic the backend broke it, so restore the snapshot and report
-/// `Skipped(NotLoadable)`; otherwise classify the win. Split out so the
-/// not-loadable rollback is unit-testable without a backend that corrupts a file
-/// (pass a `magic_before` the file no longer matches).
+/// Post-apply gate for the in-place path: read the file back and compare it to the full
+/// pre-apply `snapshot`. If the kernel does not hand back byte-identical content the backend
+/// broke it (a deep corruption past the 4-byte magic included), so restore the snapshot and
+/// report `Skipped(NotLoadable)`; otherwise classify the win. This mirrors the one-pass
+/// twin's `readback_matches` oracle. Split out so the not-loadable rollback is unit-testable
+/// without a backend that corrupts a file (point it at on-disk bytes that differ from
+/// `snapshot`).
 fn verify_loadable_or_restore<B: Backend>(
     backend: &B,
     path: &Path,
     before: u64,
-    magic_before: [u8; 4],
     snapshot: &[u8],
 ) -> Result<Outcome, Error> {
-    if verify::magic_prefix(path)? != magic_before {
+    if !verify::readback_matches(path, snapshot)? {
         restore(path, snapshot)?;
         return Ok(classify_outcome(false, before, before, None));
     }
@@ -197,8 +197,18 @@ fn restore(path: &Path, bytes: &[u8]) -> Result<(), Error> {
         context: "rollback restore: path has no parent",
         source: std::io::Error::from(std::io::ErrorKind::InvalidInput),
     })?;
-    let tmp = dir.join(format!(".decmpfs-restore-{}.tmp", std::process::id()));
-    let wrote = std::fs::File::create(&tmp)
+    let name = path.file_name().map_or_else(
+        || std::borrow::Cow::Borrowed("addon"),
+        |n| n.to_string_lossy(),
+    );
+    let tmp = unique_tmp(dir, &name);
+    // `create_new` (O_EXCL): with the collision-resistant name below, two concurrent
+    // rollbacks in the same directory never share a temp and a stale same-pid temp is never
+    // silently truncated through — a collision errors instead.
+    let wrote = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
         .and_then(|mut file| {
             file.write_all(bytes)?;
             file.sync_all()
@@ -211,6 +221,24 @@ fn restore(path: &Path, bytes: &[u8]) -> Result<(), Error> {
             source,
         }
     })
+}
+
+/// A collision-resistant sibling temp path for the rollback write: PID + wall-clock nanos +
+/// a process-local counter, so two concurrent rollbacks in the same directory (or a crashed
+/// same-pid run's stale temp) never derive the same name. Paired with `create_new`, a
+/// collision errors rather than truncating through. Mirrors the backends' `unique_tmp`
+/// discipline (macos.rs / linux.rs / windows.rs), which the PID-only name here did not.
+fn unique_tmp(dir: &Path, name: &str) -> std::path::PathBuf {
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    dir.join(format!(
+        ".{name}.decmpfs-restore-{}-{nanos}-{seq}.tmp",
+        std::process::id()
+    ))
 }
 
 #[cfg(test)]
@@ -415,9 +443,9 @@ mod tests {
 
     #[test]
     fn not_loadable_result_is_restored_and_skipped() {
-        // Drive the in-place rollback without a corrupting backend: hand a
-        // `magic_before` the on-disk file no longer matches, so the post-apply gate
-        // sees "not loadable", restores the snapshot, and reports NotLoadable.
+        // Drive the in-place rollback without a corrupting backend: the on-disk file differs
+        // from the snapshot, so the readback oracle sees "not loadable", restores the
+        // snapshot, and reports NotLoadable.
         let dir = std::env::temp_dir().join(format!(
             "abitious-fscompress-notload-{}",
             std::process::id()
@@ -425,14 +453,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("f");
         std::fs::write(&path, b"\x7fELF garbage the backend supposedly produced").unwrap();
-        let out = verify_loadable_or_restore(
-            &Os,
-            &path,
-            100,
-            [0xde, 0xad, 0xbe, 0xef],
-            b"the original bytes",
-        )
-        .unwrap();
+        let out = verify_loadable_or_restore(&Os, &path, 100, b"the original bytes").unwrap();
         assert!(matches!(
             out,
             Outcome::Skipped {
@@ -443,6 +464,43 @@ mod tests {
             std::fs::read(&path).unwrap(),
             b"the original bytes",
             "snapshot restored"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn in_place_verify_catches_deep_corruption_past_the_magic() {
+        // FINDING #6: the in-place verify used to compare only the 4-byte magic, which a
+        // deep corruption LEAVES INTACT. Here the on-disk file shares the snapshot's 4-byte
+        // magic but differs at byte 10 — a magic-only check would have PASSED it; the full
+        // readback oracle catches it, rolls back, and reports NotLoadable.
+        let dir =
+            std::env::temp_dir().join(format!("abitious-fscompress-deep-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("f");
+        let snapshot = b"\x7fELF the original good tail bytes here, all intact.".to_vec();
+        let mut corrupt = snapshot.clone();
+        corrupt[10] ^= 0xff; // same magic (bytes 0..4), differs deep in the body
+        assert_eq!(
+            corrupt[..4],
+            snapshot[..4],
+            "the 4-byte magic still matches"
+        );
+        std::fs::write(&path, &corrupt).unwrap();
+        let out = verify_loadable_or_restore(&Os, &path, 100, &snapshot).unwrap();
+        assert!(
+            matches!(
+                out,
+                Outcome::Skipped {
+                    reason: SkipReason::NotLoadable
+                }
+            ),
+            "deep corruption past the magic must trip the readback rollback: {out:?}"
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            snapshot,
+            "the snapshot was restored over the deep corruption"
         );
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -483,9 +541,40 @@ mod tests {
             restore(&target, b"bytes").is_err(),
             "rename-over-dir must Err"
         );
-        let tmp = dir.join(format!(".decmpfs-restore-{}.tmp", std::process::id()));
-        assert!(!tmp.exists(), "temp left behind");
+        // The temp name is pid+nanos+seq now, so scan for ANY leftover restore temp.
+        let leftover = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().contains("decmpfs-restore"));
+        assert!(!leftover, "a restore temp was left behind");
         assert!(target.is_dir(), "directory target untouched");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn rollback_temp_names_are_unique_and_dont_collide() {
+        // FINDING #5: the rollback temp was `.decmpfs-restore-<pid>.tmp` (PID only), so two
+        // concurrent rollbacks in the same dir/process collided. The name now carries
+        // pid+nanos+seq, so successive derivations differ...
+        let dir = Path::new("/tmp/abitious-rollback-unique");
+        let a = unique_tmp(dir, "addon.node");
+        let b = unique_tmp(dir, "addon.node");
+        assert_ne!(a, b, "two temps in the same dir must differ");
+        assert!(a.to_string_lossy().contains("decmpfs-restore"));
+
+        // ...and two real rollbacks to different targets in the SAME directory both succeed
+        // (the old PID-only + truncating-create scheme could interleave them).
+        let scratch =
+            std::env::temp_dir().join(format!("abitious-fscompress-two-{}", std::process::id()));
+        std::fs::create_dir_all(&scratch).unwrap();
+        let p1 = scratch.join("one");
+        let p2 = scratch.join("two");
+        std::fs::write(&p1, b"corrupt-1").unwrap();
+        std::fs::write(&p2, b"corrupt-2").unwrap();
+        restore(&p1, b"original-one").unwrap();
+        restore(&p2, b"original-two").unwrap();
+        assert_eq!(std::fs::read(&p1).unwrap(), b"original-one");
+        assert_eq!(std::fs::read(&p2).unwrap(), b"original-two");
+        std::fs::remove_dir_all(&scratch).ok();
     }
 }

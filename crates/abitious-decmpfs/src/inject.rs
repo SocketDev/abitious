@@ -241,7 +241,20 @@ fn read_layout(bytes: &[u8]) -> Result<Layout, InjectError> {
         }
         match cmd {
             LC_SEGMENT_64 => {
-                let segname = &bytes[off + 8..off + 24];
+                // An LC_SEGMENT_64 is always >= 72 bytes; the generic `cmdsize >= 8` guard
+                // above is not enough to make the fixed segment_command_64 fields (segname,
+                // fileoff@40, nsects@64) in-range. Require the real minimum so a truncated
+                // segment command (cmdsize in [8,71] at EOF) is a Malformed error, never a
+                // slice-index panic — and so the post-splice __LINKEDIT field writes stay
+                // within the copied command bytes.
+                if cmdsize < SEGMENT_COMMAND_64_SIZE {
+                    return Err(malformed(format!(
+                        "LC_SEGMENT_64 at {off} has cmdsize {cmdsize} < {SEGMENT_COMMAND_64_SIZE}"
+                    )));
+                }
+                let segname = bytes.get(off + 8..off + 24).ok_or_else(|| {
+                    malformed(format!("truncated LC_SEGMENT_64 segname at {off}"))
+                })?;
                 let fileoff = u64_le(bytes, off + 40)?;
                 let nsects = u32_le(bytes, off + 64)?;
                 if name_eq(segname, b"__LINKEDIT") {
@@ -356,7 +369,13 @@ fn splice_macho_segment(stub: &[u8], section_body: &[u8]) -> Result<Vec<u8>, Inj
 
     // 1. Slack guard: the new 152-byte LC must fit between END_OF_LC and the first
     //    mapped section. The stub must be linked with -headerpad,0x1000 to guarantee it.
-    let slack = layout.first_section_offset as usize - layout.end_of_lc;
+    //    `checked_sub` (release builds run with overflow-checks OFF, so a bare `-` would
+    //    WRAP): a first mapped section that precedes the load commands is a corrupt layout.
+    let first_section_offset = usize::try_from(layout.first_section_offset)
+        .map_err(|_| malformed("first mapped section offset out of range"))?;
+    let slack = first_section_offset
+        .checked_sub(layout.end_of_lc)
+        .ok_or_else(|| malformed("first mapped section precedes the end of the load commands"))?;
     if slack < NEW_LC_SIZE {
         return Err(InjectError::InsufficientSlack {
             have: slack,
@@ -375,9 +394,21 @@ fn splice_macho_segment(stub: &[u8], section_body: &[u8]) -> Result<Vec<u8>, Inj
         Some(sig) => sig.dataoff as usize,
         None => stub.len(),
     };
-    if linkedit_end < linkedit_start {
+    // Range guard for EVERY splice slice below (each must be start <= end <= len, and in
+    // file order). A malformed / out-of-order layout — __LINKEDIT fileoff inside the load
+    // commands, a code-signature dataoff before __LINKEDIT or past EOF — must be a Malformed
+    // error, never a slice-index panic (which a bare `stub[a..b]` with a > b would be).
+    let lc_end_after_splice = layout
+        .end_of_lc
+        .checked_add(NEW_LC_SIZE)
+        .ok_or_else(|| malformed("load-command region overflows"))?;
+    if layout.linkedit_lc_off > layout.end_of_lc
+        || lc_end_after_splice > linkedit_start
+        || linkedit_start > linkedit_end
+        || linkedit_end > stub.len()
+    {
         return Err(malformed(
-            "code signature precedes __LINKEDIT (corrupt layout)",
+            "out-of-order or out-of-range Mach-O layout for the splice",
         ));
     }
 
@@ -833,6 +864,64 @@ mod tests {
             err.to_string().contains("malformed load command"),
             "{err:?}"
         );
+    }
+
+    #[test]
+    fn read_layout_rejects_a_truncated_lc_segment_64_at_eof() {
+        // An LC_SEGMENT_64 whose cmdsize is in [8, 71] sitting flush at EOF: the generic
+        // `cmdsize >= 8 && off + cmdsize <= len` guard passes, but the fixed segment fields
+        // (segname@8..24, fileoff@40, nsects@64) run past the buffer. This used to panic on
+        // the raw `&bytes[off + 8..off + 24]` slice; now it is a Malformed error, no panic.
+        let mut m = vec![0u8; 48];
+        put_u32(&mut m, 0, MH_MAGIC_64);
+        put_u32(&mut m, 4, CPU_TYPE_ARM64);
+        put_u32(&mut m, 16, 1); // ncmds = 1
+        put_u32(&mut m, 32, LC_SEGMENT_64);
+        put_u32(&mut m, 36, 16); // cmdsize = 16: >= 8 and off(32)+16 == len(48), but < 72
+        let err = splice_macho_segment(&m, b"x").unwrap_err();
+        assert!(matches!(err, InjectError::Malformed(_)), "{err:?}");
+        assert!(err.to_string().contains("cmdsize"), "{err}");
+    }
+
+    #[test]
+    fn splice_rejects_out_of_order_layouts_without_panicking() {
+        // Two corrupt layouts that would underflow a bare subtraction / panic a bare slice
+        // in release (overflow-checks off): both must be Malformed errors, never a panic.
+        const FIRST_SECT_OFFSET: u32 = 0x4000; // ample slack past end_of_lc
+        let build = |section_offset: u32, linkedit_fileoff: u64| -> Vec<u8> {
+            let text = MACH_HEADER_64_SIZE; // 32
+            let text_cmdsize = SEGMENT_COMMAND_64_SIZE + SECTION_64_SIZE; // 152
+            let le = text + text_cmdsize; // __LINKEDIT LC
+            let end_of_lc = le + SEGMENT_COMMAND_64_SIZE; // 256
+            let mut m = vec![0u8; end_of_lc];
+            put_u32(&mut m, 0, MH_MAGIC_64);
+            put_u32(&mut m, 4, CPU_TYPE_ARM64);
+            put_u32(&mut m, 16, 2); // ncmds = 2
+            put_u32(&mut m, text, LC_SEGMENT_64);
+            put_u32(&mut m, text + 4, text_cmdsize as u32);
+            m[text + 8..text + 14].copy_from_slice(b"__TEXT");
+            put_u32(&mut m, text + 64, 1); // nsects = 1
+            let sect = text + SEGMENT_COMMAND_64_SIZE;
+            m[sect..sect + 6].copy_from_slice(b"__text");
+            put_u32(&mut m, sect + 48, section_offset);
+            put_u32(&mut m, le, LC_SEGMENT_64);
+            put_u32(&mut m, le + 4, SEGMENT_COMMAND_64_SIZE as u32);
+            m[le + 8..le + 18].copy_from_slice(b"__LINKEDIT");
+            put_u64(&mut m, le + 40, linkedit_fileoff); // fileoff
+            m
+        };
+
+        // (a) A mapped section whose file offset PRECEDES the end of the load commands →
+        //     the slack `checked_sub` underflows → Malformed (was a wrapping subtraction).
+        let section_inside_lcs = build(8, 0x8000);
+        let err = splice_macho_segment(&section_inside_lcs, b"body").unwrap_err();
+        assert!(matches!(err, InjectError::Malformed(_)), "{err:?}");
+
+        // (b) __LINKEDIT's fileoff lands INSIDE the (post-splice) command region → the
+        //     splice range guard rejects it before any `stub[a..b]` with a > b panics.
+        let linkedit_before_body = build(FIRST_SECT_OFFSET, 64);
+        let err = splice_macho_segment(&linkedit_before_body, b"body").unwrap_err();
+        assert!(matches!(err, InjectError::Malformed(_)), "{err:?}");
     }
 
     #[test]

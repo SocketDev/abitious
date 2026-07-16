@@ -293,6 +293,32 @@ impl Parser<'_> {
     }
 }
 
+/// Encode `s` as a JSON string literal — surrounding quotes plus the escapes a receipt path
+/// or an enum name can contain. The write-side twin of the reader above: the dep budget
+/// rules out `serde_json`, so `abi`'s receipt (`build`) and report (`inspect`) writers share
+/// THIS one hand-rolled encoder rather than each carrying an identical copy. (The separate
+/// `abitious-producer` crate keeps its own copy to avoid a cross-crate coupling.)
+pub fn encode_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                use std::fmt::Write as _;
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 /// The byte length of a UTF-8 scalar from its leading byte (1..=4).
 fn utf8_len(lead: u8) -> usize {
     if lead < 0x80 {
@@ -422,5 +448,18 @@ mod tests {
     fn parse_error_displays_offset() {
         let e = parse("nul").unwrap_err();
         assert!(e.to_string().contains("invalid JSON at byte"));
+    }
+
+    #[test]
+    fn encode_string_escapes_every_arm() {
+        // The shared encoder now consolidated out of build.rs (`json_string`) and inspect.rs
+        // (`json_str`): quote, backslash, newline, carriage return, tab, and the generic
+        // control-char `\u` fallback — plus a plain pass-through.
+        assert_eq!(encode_string("a\"b\\c"), "\"a\\\"b\\\\c\"");
+        assert_eq!(
+            encode_string("q\"b\\c\n\r\t\u{01}"),
+            "\"q\\\"b\\\\c\\n\\r\\t\\u0001\""
+        );
+        assert_eq!(encode_string("plain/path.node"), "\"plain/path.node\"");
     }
 }

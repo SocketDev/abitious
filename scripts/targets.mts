@@ -5,7 +5,9 @@
 //                                                   + @abitious/cli optionalDependencies
 //                                                   + npm/cli/targets.generated.json (loader data)
 //   2. the runtime loader (npm/cli/index.cjs)     → via the generated targets.generated.json
-//   3. the CI matrix (.github/workflows/build.yml)→ via `gen-packages --print-matrix`
+//   3. the CI matrices (.github/workflows/*.yml) → via `gen-packages --print-matrix`
+//      (build.yml, the tier-1 push/PR subset) and `--print-matrix-all` (github-release.yml
+//      + npm-publish.yml, all targets for a release)
 //   4. the Rust stub auto-resolver (crates/abitious/src/triple.rs) → the SAME
 //      `<os>-<arch>[-<abi>]` naming rule, locked by a table-driven unit test.
 //
@@ -30,12 +32,13 @@ export interface Target {
   /** The GitHub Actions runner label to build this target on. */
   runner: string
   /**
-   * Tier-1 targets build in the CI matrix today (native on their runner, no cross
-   * C toolchain). Tier-2 targets — musl (zstd-sys needs a musl C cross-toolchain)
-   * and Windows (native but pending a green CI validation) — are still generated as
-   * @abitious/<triple> manifests + optionalDependencies, but are EXCLUDED from the
-   * `--print-matrix` CI build set until their toolchains/validation land. Flip a
-   * target to tier-1 once its build is proven green. See docs / the CI follow-up.
+   * Tier-1 targets build in the FAST push/PR CI matrix (build.yml) — native on their
+   * runner, no cross C toolchain. Tier-2 targets — musl (zstd-sys needs a musl C
+   * toolchain) and Windows — are EXCLUDED from that fast subset (`--print-matrix`) but
+   * ARE built + shipped in the full RELEASE matrix (`--print-matrix-all`, used by
+   * github-release.yml + npm-publish.yml). Every target is always generated as an
+   * @abitious/<triple> manifest + optionalDependency regardless of tier; `tier1` only
+   * selects the fast push/PR build subset.
    */
   tier1?: boolean
 }
@@ -129,10 +132,5 @@ export const STUB_NODE = 'stub.node'
 
 /** The host `abi` CLI binary name inside each package (`.exe` on Windows). */
 export function abiBin(os: string): string {
-  return os === 'win32' ? 'abi.exe' : 'abi'
-}
-
-/** The cargo bin filename `abi` emits on `os` (Windows appends `.exe`). */
-export function abiArtifact(os: string): string {
   return os === 'win32' ? 'abi.exe' : 'abi'
 }

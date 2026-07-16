@@ -8,21 +8,26 @@
 # single publish job that consumes those artifacts — with the fleet-canonical
 # file name and abitious's npm/* layout.
 #
-# The build MATRIX is DERIVED from the single source of truth (scripts/targets.mts):
-# the `prepare` job emits it exactly as build.yml does, so the triple list is never
-# duplicated. Each `build` job cross-builds the generic stub cdylib + the host `abi`
-# producer, assembles the @abitious/<triple> package, and uploads it as an artifact
-# named for the triple; the `publish` job downloads them all into npm/, runs the
-# gen-then-check sync guard, and publishes the platform packages then @abitious/cli.
+# The build MATRIX is DERIVED from the single source of truth (scripts/targets.mts)
+# via `gen-packages --print-matrix-all` — the FULL, unfiltered target set (all 8),
+# NOT build.yml's fast tier-1 push/PR subset — because every @abitious/<triple>
+# published here must ship a real prebuilt (an unbuilt package would publish EMPTY
+# and break that platform's install). The triple list is never duplicated. Each
+# `build` job cross-builds the generic stub cdylib + the host `abi` producer
+# (installing the musl C toolchain for the musl targets), assembles the
+# @abitious/<triple> package, and uploads it as an artifact named for the triple;
+# the `publish` job downloads them all into npm/, runs the gen-then-check sync guard,
+# SKIPS any package whose prebuilt binary is absent (never publishes empty), and
+# publishes the platform packages then @abitious/cli.
 #
 # Default flow: manual dispatch, DRY-RUN unless `publish: true`. Publishes with npm
 # provenance via OIDC Trusted Publishing (id-token: write, NO long-lived
 # NODE_AUTH_TOKEN secret) — provenance comes from each package's
 # publishConfig.provenance + the OIDC token, so no `--provenance` flag is needed.
-# The real run is gated behind the `release` CI environment (required reviewers).
+# The real run is gated behind the `npm-publish` CI environment (required reviewers).
 #
 # One-time setup: on npmjs.com add a Trusted Publisher (OIDC) for repo
-# SocketDev/abitious, workflow npm-publish.yml, environment release — for EACH of
+# SocketDev/abitious, workflow npm-publish.yml, environment npm-publish — for EACH of
 # the 9 packages (@abitious/cli + the 8 @abitious/<triple>).
 
 name: 📦 npm publish
@@ -55,7 +60,7 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # Derive the build matrix from the single source of truth (scripts/targets.mts).
+  # Derive the FULL release matrix (all targets) from the single source of truth.
   prepare:
     runs-on: ubuntu-latest
     outputs:
@@ -68,16 +73,17 @@ jobs:
         with:
           node-version: 24
       - id: gen
-        name: derive matrix from scripts/targets.mts
+        name: derive the full release matrix from scripts/targets.mts
         run: |
           set -euo pipefail
-          matrix="$(node scripts/gen-packages.mts --print-matrix)"
+          matrix="$(node scripts/gen-packages.mts --print-matrix-all)"
           echo "matrix={\"include\":${matrix}}" >> "$GITHUB_OUTPUT"
 
   # Cross-build the stub cdylib + host abi producer per target and package the
-  # @abitious/<triple> (identical to build.yml's build job). Darwin targets run on
-  # macOS runners so the host `abi` producer (ad-hoc re-signing injected Mach-O)
-  # and the darwin stub both build against the macOS SDK.
+  # @abitious/<triple> (same shape as github-release.yml's build job). Darwin targets
+  # run on macOS runners so the host `abi` producer (ad-hoc re-signing injected
+  # Mach-O) and the darwin stub both build against the macOS SDK; musl targets install
+  # a musl C toolchain so zstd-sys's bundled libzstd C build compiles natively.
   build:
     needs: prepare
     strategy:
@@ -101,9 +107,18 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: ${{ matrix.triple }}
-      - name: install musl toolchain (musl targets only)
+      # musl targets build on their NATIVE-arch runner, so the distro musl-gcc IS the
+      # right compiler (no cross-toolchain needed). Point cc-rs at it via CC_<triple>
+      # (underscored) so zstd-sys's bundled libzstd C build uses musl-gcc.
+      - name: install the musl C toolchain (musl targets only)
         if: ${{ matrix.libc == 'musl' }}
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+        env:
+          RUST_TARGET: ${{ matrix.rust }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          echo "CC_${RUST_TARGET//-/_}=musl-gcc" >> "$GITHUB_ENV"
       - name: build the generic stub cdylib + the host abi producer
         env:
           RUST_TARGET: ${{ matrix.rust }}
@@ -156,9 +171,11 @@ jobs:
       # publish (the single-source guard, same as build.yml's check job).
       - name: gen-packages --check (manifests in sync with targets.mts)
         run: node scripts/gen-packages.mts --check
-      # npm >= 11.5 for OIDC Trusted Publishing; setup-node's bundled npm may be older.
+      # npm 11.5.1 is the minimum with OIDC Trusted Publishing; setup-node's bundled
+      # npm may be older. Pinned (not @latest) so this stays the one tool in an
+      # otherwise SHA/SRI-pinned CI that isn't a moving target — bump deliberately.
       - name: Use a trusted-publishing-capable npm
-        run: npm install --global npm@latest
+        run: npm install --global npm@11.5.1
       # Each artifact is named for its triple, so `path: npm` places it at
       # npm/<triple>/ alongside the checked-out npm/cli.
       - name: Download the per-triple platform packages
@@ -198,10 +215,23 @@ jobs:
           }
           # Platform packages first (cli's optionalDependencies resolve to them),
           # then the main @abitious/cli.
+          #
+          # Binary-presence guard: only publish a platform package whose prebuilt
+          # actually landed. A dir missing stub.node means its build produced no
+          # artifact — publishing it would ship an EMPTY package that resolves at
+          # install time but dlopen-fails at load, which is worse than a clean
+          # "no prebuilt for this platform" loader error. So skip it (never publish
+          # empty). @abitious/cli is pure JS (no stub.node) and always publishes.
           for dir in npm/*/; do
             case "$dir" in
               npm/cli/) continue ;;
             esac
+            # stub.node + the host abi bin (abi on Unix, abi.exe on Windows) are copied
+            # together at build time; skip if the stub or BOTH abi variants are absent.
+            if [ ! -f "${dir}stub.node" ] || { [ ! -f "${dir}abi" ] && [ ! -f "${dir}abi.exe" ]; }; then
+              echo "::warning::skip ${dir%/}: prebuilt binary absent (stub.node/abi) — not publishing empty"
+              continue
+            fi
             publish_one "./$dir"
           done
           publish_one "./npm/cli"

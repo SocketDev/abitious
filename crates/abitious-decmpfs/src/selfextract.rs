@@ -223,13 +223,16 @@ fn sha512_file(path: &Path) -> Option<[u8; 64]> {
 ///
 /// ## Threat model
 /// `std::env::temp_dir()` is usually the world-writable `/tmp`. The cache is
-/// `<tmpdir>/abitious-cache/<uid>/…`; the per-uid subdir is the trust boundary. A local
-/// attacker could pre-create that subdir (or a symlink standing in for it) so an addon we
-/// extract lands where they control, or so a poisoned file is waiting there. The PRIMARY
-/// defense is the SHA-512-on-read re-verify in [`resolve_self`] (a poisoned entry is never
-/// `dlopen`ed); this is cheap defense-in-depth:
-///  * create the per-uid dir `0700` (owner-only), so no other user can drop files into a
-///    dir we created;
+/// `<tmpdir>/abitious-cache/<uid>/…`; BOTH the shared `abitious-cache` parent AND the per-uid
+/// leaf are trust boundaries. A local attacker could pre-create either directory (or a
+/// symlink standing in for it) so an addon we extract lands where they control, or so a
+/// poisoned file is waiting there. Validating only the leaf leaves a **cache-parent TOCTOU**:
+/// a squatter pre-creates `abitious-cache` and can swap the per-uid subdir between our
+/// SHA-512 verify and the stub's `dlopen`. The PRIMARY defense is the SHA-512-on-read
+/// re-verify in [`resolve_self`] (a poisoned entry is never `dlopen`ed); this validates the
+/// WHOLE chain we own as cheap defense-in-depth. For every directory we create BELOW the
+/// tmpdir (which the OS owns — usually a sticky, world-writable `/tmp` we cannot re-mode):
+///  * create it `0700` (owner-only), so no other user can drop files into a dir we created;
 ///  * refuse to use it when it is a **symlink**, is **not owned by us**, or is
 ///    **group/other-writable** — each a signal it was pre-planted. Every refusal is
 ///    fail-soft (`None`; the stub falls back rather than trusting an attacker-shaped dir).
@@ -239,13 +242,28 @@ fn sha512_file(path: &Path) -> Option<[u8; 64]> {
 /// than written through.
 #[cfg(unix)]
 fn prepare_cache_dir(dir: &Path) -> Option<()> {
+    let parent = dir.parent()?; // the shared `abitious-cache` dir
+                                // The grandparent is the OS tmpdir (sticky, world-writable);
+                                // we do not own it, so only materialize it — never re-mode or
+                                // trust its bits.
+    if let Some(grandparent) = parent.parent() {
+        std::fs::create_dir_all(grandparent).ok()?;
+    }
+    // Create + validate the shared parent, THEN the per-uid leaf, with identical checks —
+    // closing the cache-parent TOCTOU (validating the leaf alone trusted an attacker-shaped
+    // parent).
+    create_and_validate_owned_dir(parent)?;
+    create_and_validate_owned_dir(dir)
+}
+
+/// Create `dir` as an owner-only (`0700`) directory and validate it is a real, owned-by-us,
+/// non-symlinked, not-group/other-writable directory — the per-directory trust check shared
+/// by every level [`prepare_cache_dir`] is responsible for. `None` (fail-soft) on any
+/// anomaly.
+#[cfg(unix)]
+fn create_and_validate_owned_dir(dir: &Path) -> Option<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 
-    // The shared `abitious-cache` parent can be world-readable; the per-uid dir is the
-    // boundary and is created 0700.
-    if let Some(parent) = dir.parent() {
-        std::fs::create_dir_all(parent).ok()?;
-    }
     match std::fs::DirBuilder::new().mode(0o700).create(dir) {
         Ok(()) => {}
         // Already there from an earlier run (or a race) — fall through to validate it.
@@ -531,6 +549,50 @@ mod tests {
             "a group/other-writable cache dir is refused"
         );
         std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(0o755)).ok();
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepare_cache_dir_refuses_a_symlinked_parent() {
+        // The cache-parent TOCTOU: a squatter pre-plants the `abitious-cache` PARENT as a
+        // symlink. Even though the per-uid leaf under it does not exist yet, the whole-chain
+        // validation must refuse the symlinked parent (never `create_dir_all` a subdir
+        // through a link an attacker controls).
+        let base = scratch_dir("prep-symlink-parent");
+        let real = base.join("real-parent");
+        std::fs::create_dir_all(&real).unwrap();
+        let cache_parent = base.join("abitious-cache"); // stands in for <tmpdir>/abitious-cache
+        std::os::unix::fs::symlink(&real, &cache_parent).unwrap();
+        let leaf = cache_parent.join(current_uid().to_string());
+        assert!(
+            prepare_cache_dir(&leaf).is_none(),
+            "a symlinked cache PARENT is refused, not followed"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepare_cache_dir_refuses_a_group_or_other_writable_parent() {
+        use std::os::unix::fs::PermissionsExt;
+        // The parent (`abitious-cache`) is pre-created group/other-writable — a squatter can
+        // still drop entries into it. Whole-chain validation refuses it before ever creating
+        // (or trusting) the per-uid leaf beneath it.
+        let base = scratch_dir("prep-ww-parent");
+        let cache_parent = base.join("abitious-cache");
+        std::fs::create_dir_all(&cache_parent).unwrap();
+        std::fs::set_permissions(&cache_parent, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let leaf = cache_parent.join(current_uid().to_string());
+        assert!(
+            prepare_cache_dir(&leaf).is_none(),
+            "a group/other-writable cache PARENT is refused"
+        );
+        assert!(
+            !leaf.exists(),
+            "the leaf is never created under an untrusted parent"
+        );
+        std::fs::set_permissions(&cache_parent, std::fs::Permissions::from_mode(0o755)).ok();
         let _ = std::fs::remove_dir_all(&base);
     }
 

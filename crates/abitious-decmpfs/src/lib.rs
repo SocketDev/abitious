@@ -377,8 +377,33 @@ pub fn decode_pressed_data(section: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
 
-    let raw = zstd::stream::decode_all(payload).ok()?;
+    // Bound the ACTUAL decompression to MAX_DECOMPRESSED: the header's size claims and the
+    // publisher-controlled SHA-512 cannot stop a zstd bomb — a tiny payload that expands to
+    // many GiB — so decode through a capped streaming decoder rather than an unbounded
+    // `decode_all` (which would OOM the reader before this size check ever ran).
+    let raw = decode_capped(payload, MAX_DECOMPRESSED)?;
     if raw.len() as u64 != header.uncompressed_size {
+        return None;
+    }
+    Some(raw)
+}
+
+/// Decompress a zstd frame while never allocating more than `cap` bytes of output. A tiny
+/// payload can claim a small `uncompressed_size` in the (attacker-controlled) header yet
+/// expand to many GiB — a zstd bomb — so neither the header sizes nor the
+/// publisher-controlled SHA-512 can bound the decode. Stream through a `Decoder` capped at
+/// `cap + 1` bytes and reject a frame whose output would exceed `cap` BEFORE the oversized
+/// buffer is ever materialized. `None` on any codec error or an over-cap frame.
+fn decode_capped(payload: &[u8], cap: u64) -> Option<Vec<u8>> {
+    use std::io::Read;
+    // Read at most cap + 1 bytes: pulling that many proves the frame is over the cap, and
+    // the `Take` guarantees the buffer never grows past cap + 1 no matter how big the frame.
+    let mut limited = zstd::stream::read::Decoder::new(payload)
+        .ok()?
+        .take(cap.saturating_add(1));
+    let mut raw = Vec::new();
+    limited.read_to_end(&mut raw).ok()?;
+    if raw.len() as u64 > cap {
         return None;
     }
     Some(raw)
@@ -685,6 +710,43 @@ mod tests {
         assert!(unwrap_if_hybrid(b"not a binary at all").is_none());
         assert!(decode_pressed_data(MAGIC_MARKER.as_slice()).is_none());
         assert!(decode_pressed_data(&[0u8; HEADER_LEN + 10]).is_none());
+    }
+
+    #[test]
+    fn decode_capped_rejects_a_zstd_bomb_without_allocating_it() {
+        // A tiny payload that expands FAR beyond a small cap (highly compressible zeros):
+        // the bounded decoder must reject it after reading at most cap + 1 bytes — never
+        // allocating the full multi-MiB (in production, multi-GiB) expansion. Tested here
+        // with a small cap so the proof is fast and deterministic; `decode_pressed_data`
+        // wires this exact helper to the real 512 MiB `MAX_DECOMPRESSED`.
+        let bomb = zstd::stream::encode_all(&vec![0u8; 4 * 1024 * 1024][..], 19).unwrap();
+        assert!(
+            bomb.len() < 64 * 1024,
+            "the bomb payload is tiny ({} B) yet expands to 4 MiB",
+            bomb.len()
+        );
+        assert!(
+            decode_capped(&bomb, 64 * 1024).is_none(),
+            "an over-cap expansion is rejected (no OOM), not decoded"
+        );
+        // Within the cap, the very same frame decodes fully — a normal payload still works.
+        let raw = decode_capped(&bomb, 8 * 1024 * 1024).expect("a within-cap frame decodes");
+        assert_eq!(raw.len(), 4 * 1024 * 1024);
+        assert!(raw.iter().all(|&b| b == 0));
+        // A non-zstd payload is a codec error → None (never a panic).
+        assert!(decode_capped(b"not a zstd frame", 1024).is_none());
+    }
+
+    #[test]
+    fn normal_hybrid_still_decodes_through_the_capped_path() {
+        // The bounded decode does not regress the happy path: a real producer section still
+        // round-trips through `decode_pressed_data` (which now calls `decode_capped`).
+        let raw = b"\x7fELF a perfectly normal, well-behaved addon payload. ".repeat(64);
+        let section = build_section_payload(&raw, Platform::Linux, Arch::X64, Libc::Glibc, 19);
+        assert_eq!(
+            decode_pressed_data(&section).as_deref(),
+            Some(raw.as_slice())
+        );
     }
 
     #[test]

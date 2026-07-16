@@ -140,7 +140,7 @@ fn json_report(file: &Path, file_size: usize, info: &SectionInfo) -> String {
          \"platform\":{plat},\"arch\":{arch},\"libc\":{libc},\
          \"platformByte\":{pb},\"archByte\":{ab},\"libcByte\":{lb},\
          \"hasConfig\":{cfg},\"integrityVerified\":{integ}}}",
-        file = json_str(&file.display().to_string()),
+        file = crate::json::encode_string(&file.display().to_string()),
         comp = info.compressed_size,
         uncomp = info.uncompressed_size,
         key = hex(&info.cache_key),
@@ -163,7 +163,7 @@ fn plain_report(file: &Path, file_size: usize, json: bool) -> String {
     if json {
         format!(
             "{{\"file\":{file},\"fileSize\":{file_size},\"hybrid\":false}}",
-            file = json_str(&file.display().to_string()),
+            file = crate::json::encode_string(&file.display().to_string()),
         )
     } else {
         format!(
@@ -206,7 +206,7 @@ fn libc_name(l: Option<Libc>, byte: u8) -> String {
 /// A recognized enum name becomes a JSON string; an unrecognized byte becomes `null`.
 fn json_opt_name(name: Option<String>) -> String {
     match name {
-        Some(n) => json_str(&n),
+        Some(n) => crate::json::encode_string(&n),
         None => "null".to_string(),
     }
 }
@@ -229,29 +229,6 @@ fn hex(bytes: &[u8]) -> String {
         let _ = write!(s, "{byte:02x}");
     }
     s
-}
-
-/// Minimal JSON string encoding — quotes plus the escapes a path can contain (matches the
-/// hand-rolled encoders in `build.rs` / the producer; dep budget rules out `serde_json`).
-fn json_str(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => {
-                use std::fmt::Write as _;
-                let _ = write!(out, "\\u{:04x}", c as u32);
-            }
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
 }
 
 #[cfg(test)]
@@ -324,15 +301,14 @@ mod tests {
     }
 
     #[test]
-    fn json_str_escapes_and_hex_is_lowercase() {
-        // Every escape arm: quote, backslash, \n, \r, \t, and the generic control-char \u.
-        assert_eq!(
-            json_str("q\"b\\c\n\r\t\u{01}"),
-            "\"q\\\"b\\\\c\\n\\r\\t\\u0001\""
-        );
+    fn hex_is_lowercase_and_json_opt_name_encodes() {
+        // The JSON string escaper is now `crate::json::encode_string` (covered by
+        // `json::tests::encode_string_escapes_every_arm`); here we cover this module's own
+        // `hex` and the `json_opt_name` wrapper that feeds the encoder.
         assert_eq!(hex(&[0x0f, 0xa0, 0xff]), "0fa0ff");
         assert_eq!(json_opt_name(None), "null");
         assert_eq!(json_opt_name(Some("x".to_string())), "\"x\"");
+        assert_eq!(json_opt_name(Some("a\"b".to_string())), "\"a\\\"b\"");
     }
 
     /// Hand-build a `SectionInfo` to drive every platform/arch/libc name arm (incl. the

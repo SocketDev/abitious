@@ -142,7 +142,7 @@ pub fn output_path(meta_json: &str, args: &BuildArgs, cwd: &Path) -> Result<Path
 pub fn build_receipt(path: &Path, size: u64) -> String {
     format!(
         "{{\"output\":{output},\"size\":{size},\"compressed\":false}}",
-        output = json_string(&path.display().to_string()),
+        output = crate::json::encode_string(&path.display().to_string()),
     )
 }
 
@@ -247,29 +247,6 @@ fn fail(what: &str, where_: &str, saw: &str, fix: &str) -> String {
     )
 }
 
-/// Minimal JSON string encoding for a path in a receipt (quotes + the escapes a path can
-/// contain).
-fn json_string(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => {
-                use std::fmt::Write as _;
-                let _ = write!(out, "\\u{:04x}", c as u32);
-            }
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
-
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
@@ -343,16 +320,9 @@ mod tests {
         assert!(r.contains("\"compressed\":false"));
     }
 
-    #[test]
-    fn json_string_escapes_specials() {
-        assert_eq!(json_string("a\"b\\c"), "\"a\\\"b\\\\c\"");
-        // Every escape arm: quote, backslash, newline, carriage return, tab, and the
-        // generic control-char `\u` fallback.
-        assert_eq!(
-            json_string("q\"b\\c\n\r\t\u{01}"),
-            "\"q\\\"b\\\\c\\n\\r\\t\\u0001\""
-        );
-    }
+    // The JSON string escaper now lives in `crate::json::encode_string` (consolidated out of
+    // this module and `inspect.rs`); its escape arms are covered by
+    // `json::tests::encode_string_escapes_every_arm`.
 
     // --- the impure orchestration, driven through the `Cargo` seam (no real cargo spawn) ---
 
@@ -385,7 +355,7 @@ mod tests {
             r#"{{ "target_directory": {t},
                   "packages": [ {{ "name": "my-addon", "targets": [
                       {{ "name": "my_addon", "crate_types": ["cdylib"] }} ] }} ] }}"#,
-            t = json_string(&target.display().to_string()),
+            t = crate::json::encode_string(&target.display().to_string()),
         )
     }
 

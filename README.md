@@ -1,4 +1,6 @@
-# abitious
+# abitious 💪
+
+![coverage score](assets/coverage-score.svg) [![Socket Badge](https://badge.socket.dev/cargo/package/abitious/0.1.0)](https://badge.socket.dev/cargo/package/abitious/0.1.0)
 
 Ship Node.js native addons (`.node`) as **compressed hybrid files** — smaller to
 download, smaller on disk, and loadable everywhere.

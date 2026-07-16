@@ -1,21 +1,27 @@
-# abitious build + release.
+# abitious FAST push/PR CI build (the tier-1 subset).
+#
+# This is the fast feedback build for pushes to main + PRs: it builds only the TIER-1
+# targets (native on their runner, no cross C toolchain). The full, all-target RELEASE
+# build (incl. musl + Windows) that ships tarballs to a GitHub Release lives in
+# github-release.yml, and the npm platform packages are built + published by
+# npm-publish.yml — so this workflow does NOT trigger on `release: published`.
 #
 # The build MATRIX is DERIVED from the single source of truth (scripts/targets.mts) at CI
-# time: the `prepare` job runs `gen-packages --print-matrix` and downstream jobs consume it
-# via `fromJSON`, so adding/removing a target in targets.mts changes the matrix with no edit
-# here (the cross-language coupling is genuine, never a duplicated triple list).
+# time: the `prepare` job runs `gen-packages --print-matrix` (the tier-1 subset) and the
+# `build` job consumes it via `fromJSON`, so adding/removing a target in targets.mts changes
+# the matrix with no edit here (the cross-language coupling is genuine, never a duplicated
+# triple list).
 #
 # Jobs:
 #   • check   — the JS gates + gen-then-check (single-source guard): gen --check, node --test,
 #               and tsc typecheck.
-#   • prepare — emit the matrix JSON from targets.mts.
-#   • build   — per target, cross-build the generic stub cdylib + the host `abi` producer and
-#               package them into the @abitious/<triple> layout; upload as an artifact. Darwin
-#               targets run on macOS runners so the host `abi` producer (which ad-hoc re-signs
-#               injected Mach-O via apple-codesign at `abi build --compress` time) is itself a
-#               macOS build, and the darwin stub links against the macOS SDK.
-#   • release — on a published GitHub Release, gather every platform package, tar each, emit
-#               SHA-256 checksums, and attach them to the release.
+#   • prepare — emit the tier-1 matrix JSON from targets.mts.
+#   • build   — per tier-1 target, cross-build the generic stub cdylib + the host `abi`
+#               producer and package them into the @abitious/<triple> layout; upload as an
+#               artifact. Darwin targets run on macOS runners so the host `abi` producer
+#               (which ad-hoc re-signs injected Mach-O via apple-codesign at
+#               `abi build --compress` time) is itself a macOS build, and the darwin stub
+#               links against the macOS SDK.
 #
 # Every action is pinned to a commit SHA (SocketDev sha_pinning_required), copied from the
 # fleet's canonical pins (decmpfs for the JS actions, envrypt for the Rust actions).
@@ -48,8 +54,6 @@ on:
       - "pnpm-lock.yaml"
       - "tsconfig.json"
       - ".github/workflows/build.yml"
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -173,32 +177,3 @@ jobs:
           name: abitious-${{ matrix.triple }}
           path: npm/${{ matrix.triple }}
           if-no-files-found: error
-
-  # On a published release, gather every platform package, tar + checksum, attach to the release.
-  release:
-    if: ${{ github.event_name == 'release' }}
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # upload assets to the GitHub Release
-    steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: abitious-*
-          path: dist
-      - name: tarball each platform package + SHA-256 checksums
-        run: |
-          set -euo pipefail
-          mkdir -p out
-          for d in dist/abitious-*; do
-            [ -d "$d" ] || continue
-            triple="$(basename "$d" | sed 's/^abitious-//')"
-            tar -czf "out/abitious-${triple}.tar.gz" -C "$d" .
-          done
-          (cd out && shasum -a 256 ./*.tar.gz > SHA256SUMS.txt)
-          cat out/SHA256SUMS.txt
-      - name: attach artifacts to the GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG" out/* --clobber

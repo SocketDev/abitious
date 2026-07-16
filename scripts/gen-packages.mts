@@ -1,8 +1,9 @@
 // Codegen driven ENTIRELY by scripts/targets.mts (the single source of truth):
 //
-//   node scripts/gen-packages.mts             write all generated files
-//   node scripts/gen-packages.mts --check     fail (exit 1) if any is out of sync
-//   node scripts/gen-packages.mts --print-matrix   print the CI matrix JSON to stdout
+//   node scripts/gen-packages.mts                  write all generated files
+//   node scripts/gen-packages.mts --check          fail (exit 1) if any is out of sync
+//   node scripts/gen-packages.mts --print-matrix       print the tier-1 push/PR CI matrix
+//   node scripts/gen-packages.mts --print-matrix-all   print the full release matrix (all targets)
 //
 // Generated outputs (each also verified by --check):
 //   • npm/<triple>/package.json         one per TARGETS entry (os/cpu/libc-gated)
@@ -90,13 +91,15 @@ function loaderData(): unknown {
 }
 
 /**
- * The CI build matrix `include:` array, derived from TARGETS. Only tier-1 targets
- * (native on their runner, no cross C toolchain) build in CI today; tier-2 (musl,
- * Windows) are still generated as manifests/optionalDependencies but excluded here
- * until their toolchains/validation land. Flip `tier1` in targets.mts to include one.
+ * The CI build matrix `include:` array, derived from TARGETS. Default (`all=false`)
+ * is the tier-1 subset — native on their runner, no cross C toolchain — for the fast
+ * push/PR CI (build.yml). `all=true` is the full, unfiltered set (every target ships a
+ * prebuilt) for the release build (github-release.yml + npm-publish.yml), where the
+ * musl C toolchain is installed per-target. Either way the triple list is never
+ * duplicated in YAML — both are single-sourced from TARGETS.
  */
-function matrix(): unknown[] {
-  return TARGETS.filter(t => t.tier1).map(t => ({
+function matrix(all = false): unknown[] {
+  return TARGETS.filter(t => all || t.tier1).map(t => ({
     triple: t.triple,
     os: t.os,
     cpu: t.cpu,
@@ -174,8 +177,11 @@ function check(files: GenFile[]): number {
 
 const mode = process.argv[2]
 if (mode === '--print-matrix') {
-  // Compact single-line JSON for GitHub Actions `fromJSON`.
+  // Compact single-line JSON for GitHub Actions `fromJSON` (tier-1 push/PR subset).
   process.stdout.write(JSON.stringify(matrix()))
+} else if (mode === '--print-matrix-all') {
+  // Compact single-line JSON for GitHub Actions `fromJSON` (full release set: all targets).
+  process.stdout.write(JSON.stringify(matrix(true)))
 } else if (mode === '--check') {
   process.exit(check(planned()))
 } else {

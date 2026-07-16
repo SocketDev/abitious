@@ -1,8 +1,9 @@
 # abitious — a napi-rs alternative that ships native `.node` addons as
 # self-loading, FS-compressed hybrid `.node` files (via decmpfs).
 #
-# M1 ships the frozen "pressed-data" section ABI (crates/abitious-decmpfs).
-# Later milestones add the stub, producer, and the `abi` CLI.
+# M1 shipped the frozen "pressed-data" section ABI (crates/abitious-decmpfs); the runtime
+# stub (abitious-stub), the producer (abitious-producer), and the `abi` CLI (abitious)
+# landed across M1–M8 and are all present in the members list below.
 [workspace]
 resolver = "2"
 members = [

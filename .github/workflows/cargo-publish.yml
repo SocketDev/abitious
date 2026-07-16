@@ -12,8 +12,8 @@
 # crates.io Trusted Publishing (OIDC — id-token: write, NO long-lived
 # CARGO_REGISTRY_TOKEN secret) with a GitHub build-provenance attestation on each
 # packaged .crate. crates.io publishes are PERMANENT (a version can only be
-# yanked, never overwritten), so the real run is gated behind the `release` CI
-# environment (required reviewers).
+# yanked, never overwritten), so the real run is gated behind the `cargo-publish`
+# CI environment (required reviewers).
 #
 # Dependency order is handled by cargo itself: `cargo publish --workspace`
 # computes the crate topological order (abitious-decmpfs → abitious-producer +
@@ -23,8 +23,8 @@
 # records a version requirement when the `path` is stripped at publish time.
 #
 # One-time setup: on crates.io add a Trusted Publisher for repo
-# SocketDev/abitious, workflow cargo-publish.yml, environment release — for EACH
-# of the 4 crates (abitious-decmpfs, abitious-stub, abitious-producer, abitious).
+# SocketDev/abitious, workflow cargo-publish.yml, environment cargo-publish — for
+# EACH of the 4 crates (abitious-decmpfs, abitious-stub, abitious-producer, abitious).
 
 name: 📦 cargo publish
 
