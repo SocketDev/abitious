@@ -22,19 +22,20 @@ test('gen-packages --check reports the committed files in sync with targets.mts'
   assert.match(out, /in sync/)
 })
 
-test('gen-packages --print-matrix derives all 8 targets from the source of truth', () => {
+test('gen-packages --print-matrix derives the tier-1 CI targets from the source of truth', () => {
+  // The CI BUILD matrix is the tier-1 subset — native on their runner, no cross C
+  // toolchain: darwin arm64/x64 + linux x64/arm64-gnu. musl (needs a musl C
+  // cross-toolchain for zstd-sys) and Windows are tier-2: still generated as
+  // @abitious/<triple> manifests + optionalDependencies (asserted in sync by the
+  // --check test above), but excluded from the CI build until their toolchains /
+  // validation land. Promote by flipping `tier1` in targets.mts.
   const matrix = JSON.parse(run('--print-matrix'))
-  assert.equal(matrix.length, 8)
   const triples = matrix.map(m => m.triple).sort()
   assert.deepEqual(triples, [
     'darwin-arm64',
     'darwin-x64',
     'linux-arm64-gnu',
-    'linux-arm64-musl',
     'linux-x64-gnu',
-    'linux-x64-musl',
-    'win32-arm64-msvc',
-    'win32-x64-msvc',
   ])
 })
 
