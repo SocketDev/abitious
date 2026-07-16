@@ -45,4 +45,19 @@ section format is the frozen compatibility contract.
   stub, output, raw/compressed sizes, cache key, platform/arch/libc). LOUD-fails
   (What/Where/Saw/Fix). Enables the `resign` feature (the accepted producer-only
   apple-codesign exception); no clap.
+- **`abitious-producer` library** — the producer core is now a `lib` + `bin`:
+  `compress_node(raw_node, stub, out, level) -> Result<Receipt, ProducerError>` (with a
+  public `Receipt` — input/stub/output, raw/compressed sizes, cache key, platform/arch/
+  libc — and `Receipt::to_json`). The `abitious-producer` bin is a thin wrapper over it,
+  so the bin and the `abi` CLI share one compress/inject/re-sign/atomic-write path.
+- **`abitious`** — the `abi` build CLI (`[[bin]] name = "abi"`):
+  `abi build [--compress] [--compress-level N] [--release] [--stub <path>] [-p <package>]
+  [--out <path>]`. Runs `cargo build` for the HOST triple, resolves the package's `cdylib`
+  artifact from `cargo metadata` (porting napi-rs `build.ts`'s cdylib resolution), copies
+  it to `<name>.node` (or `--out`), and with `--compress` compresses it into a self-loading
+  hybrid via `abitious_producer::compress_node`, printing the JSON receipt; otherwise
+  leaves the raw `.node` and prints a small build receipt. Host triple only (the cross
+  matrix and auto `@abitious/<triple>` stub resolution are later milestones). Hand-rolled
+  arg parsing + `cargo metadata` JSON reader (no clap, no serde_json); no JS fallback;
+  LOUD What/Where/Saw/Fix errors.
 - **`docs`** — the pressed-data section format specification.

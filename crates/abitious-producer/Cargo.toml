@@ -9,6 +9,12 @@ homepage.workspace = true
 keywords = ["napi", "addon", "compression", "producer", "codesign"]
 categories = ["development-tools", "command-line-utilities"]
 
+# The core (compress + inject + re-sign + atomic write) lives in the LIBRARY so the
+# `abitious-producer` bin AND the `abi` CLI (crates/abitious) share one code path.
+[lib]
+name = "abitious_producer"
+path = "src/lib.rs"
+
 [[bin]]
 name = "abitious-producer"
 path = "src/main.rs"

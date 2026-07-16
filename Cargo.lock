@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "abitious"
+version = "0.1.0"
+dependencies = [
+ "abitious-decmpfs",
+ "abitious-producer",
+]
+
+[[package]]
 name = "abitious-decmpfs"
 version = "0.1.0"
 dependencies = [
