@@ -1,0 +1,21 @@
+[package]
+name = "abitious-producer"
+description = "The abitious host producer: compress a real .node addon and inject + ad-hoc re-sign it into a generic stub's SMOL/__PRESSED_DATA section, emitting a self-loading hybrid .node."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["napi", "addon", "compression", "producer", "codesign"]
+categories = ["development-tools", "command-line-utilities"]
+
+[[bin]]
+name = "abitious-producer"
+path = "src/main.rs"
+
+# The producer is a HOST build-time tool, so it opts into `resign` (apple-codesign) to
+# ad-hoc re-sign the injected Mach-O — the accepted producer-only dep-budget exception.
+# The shipped stub/reader NEVER enable this, so their default tree stays free of
+# reqwest/tokio/hyper. No clap: arg parsing is hand-rolled (dep budget).
+[dependencies]
+abitious-decmpfs = { workspace = true, features = ["resign"] }

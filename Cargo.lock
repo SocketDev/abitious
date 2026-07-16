@@ -7,8 +7,26 @@ name = "abitious-decmpfs"
 version = "0.1.0"
 dependencies = [
  "apple-codesign",
+ "libc",
  "sha2",
+ "windows-sys 0.59.0",
  "zstd",
+]
+
+[[package]]
+name = "abitious-producer"
+version = "0.1.0"
+dependencies = [
+ "abitious-decmpfs",
+]
+
+[[package]]
+name = "abitious-stub"
+version = "0.1.0"
+dependencies = [
+ "abitious-decmpfs",
+ "libc",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

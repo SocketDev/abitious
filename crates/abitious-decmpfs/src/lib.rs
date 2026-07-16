@@ -27,6 +27,7 @@
 //! copy of the reader so both live in one crate.
 
 mod inject;
+pub mod selfextract;
 
 pub use inject::{inject_elf, inject_macho, inject_pe, inject_pressed_data, resign, InjectError};
 
@@ -218,6 +219,21 @@ pub fn decode_pressed_data(section: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     Some(raw)
+}
+
+/// Read the 16-byte cache key stamped into a pressed-data section blob (the first 16
+/// bytes of SHA-256 over the raw addon, written by [`build_section_payload`]). The key
+/// sits right after the magic marker and the two size fields. Returns `None` if `section`
+/// is too short or lacks the magic marker. This is the content-address the self-extract
+/// cache path is keyed on — a producer reads it back for its receipt without decoding.
+pub fn pressed_data_cache_key(section: &[u8]) -> Option<[u8; CACHE_KEY_LEN]> {
+    if section.len() < HEADER_LEN || &section[..MAGIC_MARKER.len()] != MAGIC_MARKER.as_slice() {
+        return None;
+    }
+    let at = MAGIC_MARKER.len() + SIZE_HEADER_LEN;
+    let mut key = [0u8; CACHE_KEY_LEN];
+    key.copy_from_slice(section.get(at..at + CACHE_KEY_LEN)?);
+    Some(key)
 }
 
 fn read_u64_le(buf: &[u8], at: usize) -> Option<u64> {

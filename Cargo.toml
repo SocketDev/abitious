@@ -5,7 +5,11 @@
 # Later milestones add the stub, producer, and the `abi` CLI.
 [workspace]
 resolver = "2"
-members = ["crates/abitious-decmpfs"]
+members = [
+    "crates/abitious-decmpfs",
+    "crates/abitious-stub",
+    "crates/abitious-producer",
+]
 
 # The 0.x version signals the API is pre-stable; the pressed-data SECTION FORMAT
 # is the real frozen compatibility contract (docs/PRESSED-DATA-FORMAT.md). MIT.
@@ -24,6 +28,18 @@ abitious-decmpfs = { path = "crates/abitious-decmpfs" }
 # versions so the mirror-image reader/writer agree byte-for-byte.
 sha2 = "=0.10.9"
 zstd = "=0.13.3"
+# The stub + the reader's `self_path`/`resolve_self` runtime seam: `dladdr` to find
+# the loaded module, `dlopen`/`dlsym` to forward into the extracted addon, `getuid`
+# to namespace the per-uid cache. Pure FFI, no C toolchain floor, static-musl-friendly.
+libc = "0.2"
+# Windows-only (M3 proof target is darwin-arm64; Windows is best-effort behind cfg):
+# `GetModuleFileNameW`/`GetModuleHandleExW` for `self_path`, `LoadLibraryW`/
+# `GetProcAddress` for the stub's forward. cfg(windows)-gated, so it never appears in
+# the darwin/linux `cargo tree -e normal` dep-budget check.
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+] }
 
 # Mirror envrypt's release profile (the fleet-canonical native build).
 [profile.release]

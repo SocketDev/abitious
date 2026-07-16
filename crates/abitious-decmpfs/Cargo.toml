@@ -27,6 +27,15 @@ resign = ["dep:apple-codesign"]
 sha2 = { workspace = true }
 zstd = { workspace = true }
 
+# `self_path` (dladdr) + the per-uid cache path (getuid) in the `selfextract` module.
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+# Windows `self_path` (GetModuleFileNameW / GetModuleHandleExW). cfg-gated so the
+# darwin/linux default tree never sees it.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }
+
 # apple-codesign ad-hoc re-signs the injected Mach-O so the new SMOL/__PRESSED_DATA
 # section stays covered by the code signature (codesign -v clean). macOS-only: it's
 # the only target whose loader enforces a signature on dlopen. `default-features =
