@@ -1,0 +1,199 @@
+# npm-publish — publish @abitious/cli + the 8 @abitious/<triple> platform
+# packages to npm via OIDC Trusted Publishing (provenance).
+#
+# INTERIM (self-contained) form: abitious is not yet fully fleet-onboarded (no
+# scripts/fleet engine), so this INLINES the build → assemble → publish flow
+# instead of calling `node scripts/fleet/npm-publish.mts` (the fleet preset). It
+# mirrors decmpfs's split build/publish shape — a per-triple build matrix feeds a
+# single publish job that consumes those artifacts — with the fleet-canonical
+# file name and abitious's npm/* layout.
+#
+# The build MATRIX is DERIVED from the single source of truth (scripts/targets.mts):
+# the `prepare` job emits it exactly as build.yml does, so the triple list is never
+# duplicated. Each `build` job cross-builds the generic stub cdylib + the host `abi`
+# producer, assembles the @abitious/<triple> package, and uploads it as an artifact
+# named for the triple; the `publish` job downloads them all into npm/, runs the
+# gen-then-check sync guard, and publishes the platform packages then @abitious/cli.
+#
+# Default flow: manual dispatch, DRY-RUN unless `publish: true`. Publishes with npm
+# provenance via OIDC Trusted Publishing (id-token: write, NO long-lived
+# NODE_AUTH_TOKEN secret) — provenance comes from each package's
+# publishConfig.provenance + the OIDC token, so no `--provenance` flag is needed.
+# The real run is gated behind the `release` CI environment (required reviewers).
+#
+# One-time setup: on npmjs.com add a Trusted Publisher (OIDC) for repo
+# SocketDev/abitious, workflow npm-publish.yml, environment release — for EACH of
+# the 9 packages (@abitious/cli + the 8 @abitious/<triple>).
+
+name: 📦 npm publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish for real (false = dry-run, the default).'
+        type: boolean
+        default: false
+      dist-tag:
+        description: 'npm dist-tag to publish under.'
+        type: string
+        default: 'latest'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false # Don't cancel a publish.
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Derive the build matrix from the single source of truth (scripts/targets.mts).
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+      - id: gen
+        name: derive matrix from scripts/targets.mts
+        run: |
+          set -euo pipefail
+          matrix="$(node scripts/gen-packages.mts --print-matrix)"
+          echo "matrix={\"include\":${matrix}}" >> "$GITHUB_OUTPUT"
+
+  # Cross-build the stub cdylib + host abi producer per target and package the
+  # @abitious/<triple> (identical to build.yml's build job). Darwin targets run on
+  # macOS runners so the host `abi` producer (ad-hoc re-signing injected Mach-O)
+  # and the darwin stub both build against the macOS SDK.
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+      # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-07-12);
+      # keep `toolchain:` here in lockstep with it + build.yml.
+      - uses: dtolnay/rust-toolchain@efcb852328a9f50117170cc43094fb6f09eaf1ae # nightly
+        with:
+          toolchain: nightly-2026-07-12
+          targets: ${{ matrix.rust }}
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: ${{ matrix.triple }}
+      - name: install musl toolchain (musl targets only)
+        if: ${{ matrix.libc == 'musl' }}
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: build the generic stub cdylib + the host abi producer
+        run: |
+          set -euo pipefail
+          cargo build -p abitious-stub --release --target "${{ matrix.rust }}"
+          cargo build -p abitious --release --target "${{ matrix.rust }}"
+      - name: stage the @abitious/${{ matrix.triple }} package
+        run: |
+          set -euo pipefail
+          node scripts/gen-packages.mts
+          dest="npm/${{ matrix.triple }}"
+          out="target/${{ matrix.rust }}/release"
+          cp "${out}/${{ matrix.stubArtifact }}" "${dest}/stub.node"
+          cp "${out}/${{ matrix.bin }}" "${dest}/${{ matrix.bin }}"
+          ls -la "${dest}"
+      # Artifact name is the bare triple so the publish job's download (path: npm)
+      # lands each package at npm/<triple>/.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.triple }}
+          path: npm/${{ matrix.triple }}
+          if-no-files-found: error
+
+  # Assemble every platform package + @abitious/cli and publish with provenance.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Human-approval + OIDC gate on the real publish; a dry-run is ungated.
+    environment: ${{ inputs.publish == true && 'release' || '' }}
+    permissions:
+      contents: read
+      id-token: write # npm provenance / Trusted Publishing mints its OIDC token
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+      # gen-then-check: the committed manifests must match targets.mts before we
+      # publish (the single-source guard, same as build.yml's check job).
+      - name: gen-packages --check (manifests in sync with targets.mts)
+        run: node scripts/gen-packages.mts --check
+      # npm >= 11.5 for OIDC Trusted Publishing; setup-node's bundled npm may be older.
+      - name: Use a trusted-publishing-capable npm
+        run: npm install --global npm@latest
+      # Each artifact is named for its triple, so `path: npm` places it at
+      # npm/<triple>/ alongside the checked-out npm/cli.
+      - name: Download the per-triple platform packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: npm
+      - name: Publish (platform packages first, @abitious/cli last)
+        env:
+          # publish=true → real publish; otherwise a dry-run rehearsal.
+          DRY_RUN: ${{ inputs.publish != true }}
+          DIST_TAG: ${{ inputs.dist-tag }}
+        run: |
+          set -euo pipefail
+          # Array (not a string) so each flag stays one argv element under
+          # quoted "${ARGS[@]}" expansion — no word-splitting (shellcheck-clean).
+          ARGS=(--access public --tag "${DIST_TAG:-latest}")
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          # Publish one package dir idempotently: skip a version already on the
+          # registry so a re-run after a mid-list failure completes the rest
+          # instead of 403-aborting on the first (the `npm view` also doubles as
+          # the pre-publish registry-read receipt). Provenance comes from each
+          # package's publishConfig.provenance + id-token: write (OIDC), so no
+          # --provenance flag or NODE_AUTH_TOKEN is needed.
+          # Leading ./ is load-bearing: npm parses a bare `a/b` arg as a GitHub
+          # git spec, not a folder.
+          publish_one() {
+            dir="$1"
+            name="$(node -p "require('${dir}/package.json').name")"
+            version="$(node -p "require('${dir}/package.json').version")"
+            if [ "$DRY_RUN" != "true" ] && npm view "${name}@${version}" version >/dev/null 2>&1; then
+              echo "skip: ${name}@${version} already published"
+              return 0
+            fi
+            npm publish "$dir" "${ARGS[@]}"
+          }
+          # Platform packages first (cli's optionalDependencies resolve to them),
+          # then the main @abitious/cli.
+          for dir in npm/*/; do
+            case "$dir" in
+              npm/cli/) continue ;;
+            esac
+            publish_one "./$dir"
+          done
+          publish_one "./npm/cli"

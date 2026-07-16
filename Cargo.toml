@@ -22,11 +22,15 @@ repository = "https://github.com/SocketDev/abitious"
 homepage = "https://github.com/SocketDev/abitious"
 
 [workspace.dependencies]
-abitious-decmpfs = { path = "crates/abitious-decmpfs" }
+# Intra-workspace path deps carry BOTH `path` (local builds resolve to the sibling
+# crate) AND `version` (crates.io publish requires every dependency to state a version
+# — cargo strips the `path` and records this version from the registry). The version
+# tracks the workspace `version` (0.1.0); bump both together on a release.
+abitious-decmpfs = { path = "crates/abitious-decmpfs", version = "0.1.0" }
 # The shared producer LIBRARY (`compress_node` + `Receipt`), driven by both the
 # `abitious-producer` bin and the `abi` CLI. Pulls apple-codesign via `resign` (the
 # accepted producer-only dep-budget exception) — off the shipped reader/stub tree.
-abitious-producer = { path = "crates/abitious-producer" }
+abitious-producer = { path = "crates/abitious-producer", version = "0.1.0" }
 # The section ABI's two primitives: SHA-512 payload integrity + SHA-256 cache
 # key (`sha2`) and the zstd codec used end-to-end (`zstd`). Both pure Rust, no
 # C toolchain floor beyond zstd-sys's bundled libzstd. Pinned to decmpfs's exact
