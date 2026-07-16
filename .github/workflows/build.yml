@@ -85,8 +85,10 @@ jobs:
         run: node scripts/gen-packages.mts --check
       - name: node --test (loader-resolution + codegen unit tests)
         run: node --test 'npm/cli/test/**/*.test.mjs'
-      - name: enable pnpm (corepack reads the pinned packageManager)
-        run: corepack enable
+      # Fleet pnpm: a pinned, SRI-verified pnpm on PATH (sets
+      # npm_config_manage_package_manager_versions=false) — NOT corepack (a fleet-wide
+      # wheelhouse rule) and not `npm i -g pnpm`.
+      - uses: ./.github/actions/setup-pnpm
       - name: install devDeps
         run: pnpm install --frozen-lockfile
       - name: typecheck (tsc --noEmit)
