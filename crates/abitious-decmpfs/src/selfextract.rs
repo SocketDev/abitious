@@ -442,6 +442,50 @@ mod tests {
     }
 
     #[test]
+    fn cache_path_falls_back_to_addon_when_there_is_no_file_stem() {
+        // A self path with no file stem (e.g. the filesystem root) exercises cache_path's
+        // `file_stem().map(..).unwrap_or_else(|| "addon")` fallback, so the cache file is still
+        // named deterministically rather than panicking.
+        let p = cache_path(Path::new("/"), &[0x01, 0x02]);
+        let s = p.to_string_lossy();
+        assert!(s.contains("abitious-cache"), "{s}");
+        assert!(s.ends_with("addon-0102.node"), "{s}");
+    }
+
+    #[test]
+    fn sha512_file_is_none_on_a_missing_or_unreadable_path() {
+        // A path that cannot be opened → the `File::open(..).ok()?` None arm.
+        let missing =
+            std::env::temp_dir().join(format!("abitious-selfextract-sha-missing-{}", std::process::id()));
+        assert!(sha512_file(&missing).is_none());
+        // A directory opens but the streaming `read(..)` fails (EISDIR) → the read-loop's
+        // `.ok()?` None arm, distinct from the open failure above.
+        let dir = scratch_dir("sha-dir");
+        assert!(sha512_file(&dir).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepare_cache_dir_is_none_when_the_leaf_has_no_parent() {
+        // A leaf with no parent (the filesystem root) → the `dir.parent()?` None arm, before
+        // any directory is created or validated.
+        assert!(prepare_cache_dir(Path::new("/")).is_none());
+    }
+
+    #[test]
+    fn write_atomic_is_none_when_the_dest_has_no_file_name() {
+        // A destination whose final component is `..` has a parent but no file_name(), so
+        // write_atomic bails at `dest.file_name()?` — the None arm past the parent check —
+        // without ever creating a temp.
+        let dir = scratch_dir("wa-noname");
+        let no_name = dir.join("..");
+        assert!(no_name.file_name().is_none(), "sanity: `..` has no file_name");
+        assert!(write_atomic(&no_name, b"data").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn resolve_self_round_trips_an_injected_hybrid() {
         let dir = scratch_dir("roundtrip");
         // A raw "addon" (any bytes) → build the section → inject into a minimal ELF stub

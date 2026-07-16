@@ -252,6 +252,26 @@ mod tests {
     }
 
     #[test]
+    fn cdylib_target_name_is_none_on_wrong_shaped_metadata() {
+        // cdylib_target_name reaches find_cdylib_name directly (no target_directory gate in
+        // front of it), so it drives the parse + `packages` + `targets` fall-through arms that
+        // cdylib_artifact_path shields behind its earlier `target_directory?`.
+        // Unparseable JSON → the `json::parse(..).ok()?` None arm.
+        assert!(cdylib_target_name("not json at all", None).is_none());
+        // No `packages` key → the `meta.get("packages")?` None arm.
+        assert!(cdylib_target_name("{}", None).is_none());
+        // `packages` present but not an array → the `.as_array()?` None arm.
+        assert!(cdylib_target_name(r#"{ "packages": 7 }"#, None).is_none());
+        // A selected package with no `targets` key → `pkg.get("targets")?` None.
+        assert!(cdylib_target_name(r#"{ "packages": [ { "name": "a" } ] }"#, Some("a")).is_none());
+        // A selected package whose `targets` is not an array → `.as_array()?` None.
+        assert!(
+            cdylib_target_name(r#"{ "packages": [ { "name": "a", "targets": 3 } ] }"#, Some("a"))
+                .is_none()
+        );
+    }
+
+    #[test]
     fn target_without_crate_types_is_skipped() {
         // A target lacking crate_types must not match; falls through to None.
         let json = r#"{

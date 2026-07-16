@@ -425,6 +425,36 @@ mod tests {
     }
 
     #[test]
+    fn rejects_an_unterminated_object_key() {
+        // The key position sees a `"`, so parse_object calls parse_string — which then hits
+        // end-of-input mid-key. The failure propagates through the `let key = parse_string()?`
+        // in parse_object (a distinct arm from the "expected a string key" guard, which fires
+        // only when the key does NOT start with a quote).
+        assert!(parse("{\"abc").is_err());
+    }
+
+    #[test]
+    fn rejects_bad_hex_in_a_surrogate_low_half() {
+        // A high surrogate is immediately followed by a `\u` escape whose four hex digits are
+        // invalid: parse_unicode_escape consumes the `\u`, then the low-half read_hex4 fails
+        // and the error propagates through `let lo = read_hex4()?` (the low-half arm, distinct
+        // from the high-half read_hex4 at the top of the function).
+        let bs = char::from(92u8);
+        let input = format!(r#""{bs}uD800{bs}uzzzz""#);
+        assert!(parse(&input).is_err());
+    }
+
+    #[test]
+    fn rejects_a_number_that_lexes_but_does_not_parse() {
+        // The number scanner accepts the JSON-number byte set greedily, so these all lex into a
+        // digit/sign/dot/exp run yet fail `str::parse::<f64>()` — driving the `malformed number`
+        // map_err arm rather than any earlier structural guard.
+        assert!(parse("-").is_err()); // a lone sign
+        assert!(parse("1.2.3").is_err()); // two decimal points
+        assert!(parse("9e").is_err()); // exponent with no digits
+    }
+
+    #[test]
     fn keeps_raw_utf8_in_strings() {
         // 1-, 2-, and 3-byte raw UTF-8 scalars (é = 2 bytes, em dash = 3 bytes).
         let v = parse("\"café — au lait\"").unwrap();

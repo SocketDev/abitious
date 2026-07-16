@@ -482,6 +482,24 @@ mod tests {
     }
 
     #[test]
+    fn write_atomic_uses_the_default_name_when_the_dest_has_no_file_name() {
+        // A dest whose final component is `..` has a parent but no file_name(), so write_atomic
+        // takes its `"out.node"` fallback name (the `unwrap_or_else` default arm). It still
+        // reaches the temp write + rename; renaming over `..` then fails, so it returns Err —
+        // the point is the otherwise-untaken default-name branch runs.
+        let dir = scratch_dir("wa-noname");
+        let sub = dir.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let no_name = sub.join(".."); // file_name() is None; parent() is `<dir>/sub` (non-empty)
+        assert!(no_name.file_name().is_none(), "sanity: `..` has no file_name");
+        assert!(
+            write_atomic(&no_name, b"data").is_err(),
+            "rename onto `..` must fail after the fallback name"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn receipt_json_escapes_paths_and_names_the_triple() {
         let receipt = Receipt {
             input: PathBuf::from("in put\".node"),

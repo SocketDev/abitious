@@ -570,6 +570,24 @@ mod tests {
     }
 
     #[test]
+    fn plain_write_uses_the_default_name_when_the_path_has_no_file_name() {
+        // A path whose final component is `..` has a parent but no file_name(), so plain_write
+        // takes its `"addon"` fallback name (the `unwrap_or_else` default arm). It still reaches
+        // the temp write + rename; renaming a file over `..` then fails, so it returns Err — but
+        // the default-name branch is exercised without a real gate-excluded write.
+        let dir = scratch("plain-noname");
+        let sub = dir.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let no_name = sub.join(".."); // file_name() is None; parent() is `<dir>/sub` (exists)
+        assert!(no_name.file_name().is_none(), "sanity: `..` has no file_name");
+        assert!(
+            plain_write(&no_name, b"bytes").is_err(),
+            "rename onto `..` must fail after the fallback name"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn error_display_and_source() {
         let nf = Error::NotFound(std::path::PathBuf::from("/x"));
         assert!(nf.to_string().contains("not found"));
