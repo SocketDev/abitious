@@ -1,0 +1,8 @@
+# Fleet Rust pin, mirrored from socket-wheelhouse (the canonical source).
+# Pinned to the 2026-07-12 nightly for cargo's minimum-release-age support —
+# the supply-chain soak that keeps just-published crates out of the build.
+# Hold this nightly until a stable Rust release ships that support, then bump
+# to that stable and retire the nightly pin.
+[toolchain]
+channel = "nightly-2026-07-12"
+profile = "minimal"

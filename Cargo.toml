@@ -1,0 +1,37 @@
+# abitious — a napi-rs alternative that ships native `.node` addons as
+# self-loading, FS-compressed hybrid `.node` files (via decmpfs).
+#
+# M1 ships the frozen "pressed-data" section ABI (crates/abitious-decmpfs).
+# Later milestones add the stub, producer, and the `abi` CLI.
+[workspace]
+resolver = "2"
+members = ["crates/abitious-decmpfs"]
+
+# The 0.x version signals the API is pre-stable; the pressed-data SECTION FORMAT
+# is the real frozen compatibility contract (docs/PRESSED-DATA-FORMAT.md). MIT.
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/SocketDev/abitious"
+homepage = "https://github.com/SocketDev/abitious"
+
+[workspace.dependencies]
+abitious-decmpfs = { path = "crates/abitious-decmpfs" }
+# The section ABI's two primitives: SHA-512 payload integrity + SHA-256 cache
+# key (`sha2`) and the zstd codec used end-to-end (`zstd`). Both pure Rust, no
+# C toolchain floor beyond zstd-sys's bundled libzstd. Pinned to decmpfs's exact
+# versions so the mirror-image reader/writer agree byte-for-byte.
+sha2 = "=0.10.9"
+zstd = "=0.13.3"
+
+# Mirror envrypt's release profile (the fleet-canonical native build).
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
+overflow-checks = false
+debug-assertions = false
