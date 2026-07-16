@@ -1223,4 +1223,256 @@ mod tests {
         p[sect_table..sect_table + 5].copy_from_slice(b".text"); // not ".PRESSED"
         assert!(unwrap_if_hybrid(&p).is_none());
     }
+
+    // --- "Oh shit" cases: catastrophic / malicious inputs against the frozen-format decode
+    // path. Each test crafts a real disaster input, drives the real defensive arm, and asserts
+    // graceful rejection (None, never a panic or a giant allocation). The valid fixtures below
+    // (synth_macho_hybrid / synth_pe_hybrid, plus the existing synth_elf_hybrid) are chopped or
+    // mutated at the exact byte the guard fires on.
+
+    /// A synthetic Mach-O 64 carrying `raw` in a `SMOL`/`__PRESSED_DATA` section at the fixed
+    /// offsets `find_macho` walks (mirrors `finds_pressed_data_in_a_synthetic_macho`). A valid
+    /// hybrid the truncation/overflow tests below chop up.
+    fn synth_macho_hybrid(raw: &[u8]) -> Vec<u8> {
+        let blob = build_section_payload(raw, Platform::Darwin, Arch::Arm64, Libc::Na, 3);
+        const LC_SEGMENT_64: u32 = 0x19;
+        let seg_cmd_len = 72 + 80;
+        let blob_off = 32 + seg_cmd_len;
+        let mut bin = vec![0u8; blob_off];
+        bin[0..4].copy_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
+        bin[16..20].copy_from_slice(&1u32.to_le_bytes());
+        let seg = 32;
+        bin[seg..seg + 4].copy_from_slice(&LC_SEGMENT_64.to_le_bytes());
+        bin[seg + 4..seg + 8].copy_from_slice(&(seg_cmd_len as u32).to_le_bytes());
+        bin[seg + 8..seg + 12].copy_from_slice(b"SMOL");
+        bin[seg + 64..seg + 68].copy_from_slice(&1u32.to_le_bytes());
+        let sect = seg + 72;
+        bin[sect..sect + 14].copy_from_slice(b"__PRESSED_DATA");
+        bin[sect + 40..sect + 48].copy_from_slice(&(blob.len() as u64).to_le_bytes());
+        bin[sect + 48..sect + 52].copy_from_slice(&(blob_off as u32).to_le_bytes());
+        bin.extend_from_slice(&blob);
+        bin
+    }
+
+    /// A synthetic PE carrying `raw` in a `.PRESSED` section at the fixed offsets `find_pe`
+    /// parses (mirrors `finds_pressed_data_in_a_synthetic_pe`). A valid hybrid the
+    /// truncation/overflow tests below chop up.
+    fn synth_pe_hybrid(raw: &[u8]) -> Vec<u8> {
+        let blob = build_section_payload(raw, Platform::Win32, Arch::X64, Libc::Na, 3);
+        let pe_off = 64usize;
+        let sect_table = pe_off + 24;
+        let blob_off = sect_table + 40;
+        let mut bin = vec![0u8; blob_off];
+        bin[0] = b'M';
+        bin[1] = b'Z';
+        bin[0x3c..0x40].copy_from_slice(&(pe_off as u32).to_le_bytes());
+        bin[pe_off..pe_off + 4].copy_from_slice(b"PE\0\0");
+        bin[pe_off + 6..pe_off + 8].copy_from_slice(&1u16.to_le_bytes());
+        bin[pe_off + 20..pe_off + 22].copy_from_slice(&0u16.to_le_bytes());
+        bin[sect_table..sect_table + 8].copy_from_slice(b".PRESSED");
+        bin[sect_table + 16..sect_table + 20].copy_from_slice(&(blob.len() as u32).to_le_bytes());
+        bin[sect_table + 20..sect_table + 24].copy_from_slice(&(blob_off as u32).to_le_bytes());
+        bin.extend_from_slice(&blob);
+        bin
+    }
+
+    #[test]
+    fn decode_rejects_an_oversized_size_claim_without_allocating_the_claim() {
+        // oh-shit: bomb-by-size-claim. A header CLAIMING a decompressed (or compressed) size
+        // past the 512 MiB `MAX_DECOMPRESSED` cap must be refused by the size gate BEFORE any
+        // payload slice or decode runs — so a 600 MiB claim never drives a 600 MiB allocation.
+        // The section is a bare 132-byte header with NO payload bytes, so a large allocation is
+        // physically impossible: the guard (not the buffer) does the rejecting.
+        let over = MAX_DECOMPRESSED + 1;
+        let header = |compressed: u64, uncompressed: u64| -> Vec<u8> {
+            let mut s = MAGIC_MARKER.to_vec();
+            s.extend_from_slice(&compressed.to_le_bytes());
+            s.extend_from_slice(&uncompressed.to_le_bytes());
+            s.extend_from_slice(&[0u8; CACHE_KEY_LEN]);
+            s.extend_from_slice(&[0u8, 1u8, 255u8]); // platform bytes
+            s.extend_from_slice(&[0u8; INTEGRITY_HASH_LEN]);
+            s.push(0); // has_config
+            assert_eq!(s.len(), HEADER_LEN);
+            s
+        };
+        // Oversized UNCOMPRESSED claim (with a small, in-cap compressed claim).
+        assert!(decode_pressed_data(&header(64, over)).is_none());
+        // Oversized COMPRESSED claim (with a small, in-cap uncompressed claim).
+        assert!(decode_pressed_data(&header(over, 64)).is_none());
+    }
+
+    #[test]
+    fn decode_rejects_a_frame_that_passes_integrity_but_will_not_decompress() {
+        // oh-shit: SHA-512 vouches for the bytes, but they are not a decodable zstd frame. The
+        // publisher-controlled integrity hash CANNOT guarantee decode safety, so the capped
+        // streaming decode still has to reject (None). Proves `decode_pressed_data` does not
+        // trust a passing hash to skip the decode — it exercises the `decode_capped(...)?`
+        // propagation arm with a frame that hashes fine yet is un-decodable.
+        let payload = b"\xde\xad\xbe\xef these bytes hash fine but are not a zstd frame".repeat(4);
+        let mut s = MAGIC_MARKER.to_vec();
+        s.extend_from_slice(&(payload.len() as u64).to_le_bytes()); // compressed_size (in-cap)
+        s.extend_from_slice(&64u64.to_le_bytes()); // uncompressed_size (in-cap, non-zero)
+        s.extend_from_slice(&[0u8; CACHE_KEY_LEN]);
+        s.extend_from_slice(&[0u8, 1u8, 255u8]);
+        s.extend_from_slice(&Sha512::digest(&payload)); // integrity: matches the payload exactly
+        s.push(0); // has_config
+        s.extend_from_slice(&payload);
+        // The oh-shit precondition: the integrity check PASSES on this garbage frame ...
+        assert!(read_section_info(&s).unwrap().integrity_verified);
+        // ... yet the decode still refuses it, because the hash can't vouch for decodability.
+        assert!(decode_pressed_data(&s).is_none());
+    }
+
+    #[test]
+    fn find_pressed_data_section_rejects_a_runt_shorter_than_the_magic() {
+        // oh-shit: a file too short to even hold the 4-byte object magic. The leading
+        // `content.get(..4)?` must bail (None), never index past the end.
+        for runt in [&b""[..], &b"M"[..], &b"MZ"[..], &b"\x7fEL"[..]] {
+            assert!(unwrap_if_hybrid(runt).is_none());
+        }
+    }
+
+    #[test]
+    fn find_macho_rejects_a_header_truncated_at_each_guarded_read() {
+        // oh-shit: truncated-Mach-O. A valid hybrid chopped at each successive header/section
+        // read must degrade to None, never panic. Each length lands exactly on one guarded read.
+        let raw = vec![0x42u8; 64];
+        let full = synth_macho_hybrid(&raw);
+        assert_eq!(unwrap_if_hybrid(&full).as_deref(), Some(raw.as_slice()));
+        for len in [
+            16,  // ncmds read (offset 16)
+            34,  // load-command `cmd` read (offset 32)
+            38,  // `cmdsize` read (offset 36)
+            50,  // SMOL segname slice (offset 40..56)
+            98,  // nsects read (offset 96)
+            110, // section-name slice (offset 104..120)
+            148, // section `size` read (offset 144)
+            154, // section `offset` read (offset 152)
+        ] {
+            assert!(
+                unwrap_if_hybrid(&full[..len]).is_none(),
+                "a Mach-O truncated to {len} B must be rejected, not decoded"
+            );
+        }
+    }
+
+    #[test]
+    fn find_macho_rejects_a_pressed_data_section_whose_offset_plus_size_overflows() {
+        // oh-shit: offset overflow. A __PRESSED_DATA section header claiming size == u64::MAX
+        // with offset 1 would overflow `offset + size`; the `offset.checked_add(size)?` must
+        // bail to None rather than wrap and slice out of bounds.
+        let mut bin = synth_macho_hybrid(&[0x42u8; 64]);
+        let sect = 32 + 72; // section_64 record start (segment command header is 72 B)
+        bin[sect + 40..sect + 48].copy_from_slice(&u64::MAX.to_le_bytes()); // size = u64::MAX
+        bin[sect + 48..sect + 52].copy_from_slice(&1u32.to_le_bytes()); // offset = 1
+        assert!(unwrap_if_hybrid(&bin).is_none());
+    }
+
+    #[test]
+    fn find_elf_rejects_a_header_truncated_at_each_guarded_read() {
+        // oh-shit: truncated-ELF. Chop a valid ELF64 hybrid at each header/section-table read.
+        let raw = vec![0x66u8; 64];
+        let full = synth_elf_hybrid(&raw);
+        assert_eq!(unwrap_if_hybrid(&full).as_deref(), Some(raw.as_slice()));
+        for len in [
+            4,   // EI_CLASS read (offset 4)
+            10,  // e_shoff read (offset 40)
+            50,  // e_shentsize read (offset 58)
+            61,  // e_shnum read (offset 60)
+            63,  // e_shstrndx read (offset 62)
+            115, // string-table sh_offset read (strtab_hdr + 24 == 113)
+            125, // string-table sh_size read (strtab_hdr + 32 == 121)
+            155, // section-header sh_name read mid-walk (section 1 header @ 153)
+            160, // matched .PRESSED_DATA sh_offset read (153 + 24 == 177)
+            188, // matched .PRESSED_DATA sh_size read (153 + 32 == 185)
+        ] {
+            assert!(
+                unwrap_if_hybrid(&full[..len]).is_none(),
+                "an ELF truncated to {len} B must be rejected, not decoded"
+            );
+        }
+    }
+
+    #[test]
+    fn find_elf_rejects_offsets_that_overflow_or_slice_out_of_bounds() {
+        // oh-shit: attacker-chosen u64 offsets in the ELF section-header table. Every
+        // `checked_add` / `.get(..)` on the frozen layout must bail to None, never wrap or
+        // read past the end. (`synth_elf_hybrid` lays strtab @ 64, e_shoff @ 89, second
+        // section-header record @ 153.)
+        let strtab_hdr = 89usize;
+        let sect1 = 153usize;
+
+        // (a) e_shoff so large that strtab_hdr = e_shoff + e_shstrndx * e_shentsize overflows.
+        let mut bin = synth_elf_hybrid(&[0x66u8; 64]);
+        bin[40..48].copy_from_slice(&u64::MAX.to_le_bytes()); // e_shoff = usize::MAX
+        bin[62..64].copy_from_slice(&1u16.to_le_bytes()); // e_shstrndx = 1 (< e_shnum = 2)
+        assert!(unwrap_if_hybrid(&bin).is_none());
+
+        // (b) string-table (offset, size) whose offset + size overflows.
+        let mut bin = synth_elf_hybrid(&[0x66u8; 64]);
+        bin[strtab_hdr + 24..strtab_hdr + 32].copy_from_slice(&u64::MAX.to_le_bytes()); // strtab_off
+        bin[strtab_hdr + 32..strtab_hdr + 40].copy_from_slice(&1u64.to_le_bytes()); // strtab_size
+        assert!(unwrap_if_hybrid(&bin).is_none());
+
+        // (c) string-table with an in-range offset but a size running off the end of the file.
+        let mut bin = synth_elf_hybrid(&[0x66u8; 64]);
+        bin[strtab_hdr + 24..strtab_hdr + 32].copy_from_slice(&0u64.to_le_bytes()); // strtab_off = 0
+        bin[strtab_hdr + 32..strtab_hdr + 40].copy_from_slice(&0xFFFF_FFFFu64.to_le_bytes()); // 4 GiB
+        assert!(unwrap_if_hybrid(&bin).is_none());
+
+        // (d) a matched .PRESSED_DATA section whose (sh_offset, sh_size) runs off the end.
+        let mut bin = synth_elf_hybrid(&[0x66u8; 64]);
+        bin[sect1 + 24..sect1 + 32].copy_from_slice(&0u64.to_le_bytes()); // sh_offset = 0
+        bin[sect1 + 32..sect1 + 40].copy_from_slice(&0xFFFF_FFFFu64.to_le_bytes()); // sh_size 4 GiB
+        assert!(unwrap_if_hybrid(&bin).is_none());
+
+        // (e) a matched .PRESSED_DATA section whose sh_offset + sh_size overflows usize.
+        let mut bin = synth_elf_hybrid(&[0x66u8; 64]);
+        bin[sect1 + 24..sect1 + 32].copy_from_slice(&u64::MAX.to_le_bytes()); // sh_offset = usize::MAX
+        bin[sect1 + 32..sect1 + 40].copy_from_slice(&1u64.to_le_bytes()); // sh_size = 1
+        assert!(unwrap_if_hybrid(&bin).is_none());
+    }
+
+    #[test]
+    fn find_elf_rejects_a_section_name_offset_past_the_string_table() {
+        // oh-shit: a section header whose sh_name points beyond the string table. `cstr_at`'s
+        // `strtab.get(off..)?` must bail (None), so the name simply never matches — no panic.
+        let sect1 = 153usize; // second section-header record (synth_elf_hybrid layout)
+        let mut bin = synth_elf_hybrid(&[0x66u8; 64]);
+        bin[sect1..sect1 + 4].copy_from_slice(&9999u32.to_le_bytes()); // sh_name past strtab end
+        assert!(unwrap_if_hybrid(&bin).is_none());
+    }
+
+    #[test]
+    fn find_pe_rejects_a_header_truncated_at_each_guarded_read() {
+        // oh-shit: truncated-PE. Chop a valid PE hybrid at each successive header/section read.
+        let raw = vec![0x55u8; 64];
+        let full = synth_pe_hybrid(&raw);
+        assert_eq!(unwrap_if_hybrid(&full).as_deref(), Some(raw.as_slice()));
+        for len in [
+            4,   // e_lfanew read (offset 0x3c)
+            66,  // "PE\0\0" signature slice (pe_off 64..68)
+            70,  // NumberOfSections read (coff + 2 == 70)
+            84,  // SizeOfOptionalHeader read (coff + 16 == 84)
+            90,  // section-name slice (section table @ 88)
+            106, // matched .PRESSED SizeOfRawData read (sect + 16 == 104)
+            110, // matched .PRESSED PointerToRawData read (sect + 20 == 108)
+        ] {
+            assert!(
+                unwrap_if_hybrid(&full[..len]).is_none(),
+                "a PE truncated to {len} B must be rejected, not decoded"
+            );
+        }
+    }
+
+    #[test]
+    fn find_pe_rejects_a_pressed_section_slice_out_of_bounds() {
+        // oh-shit: a .PRESSED section header whose (PointerToRawData, SizeOfRawData) runs off
+        // the end of the file. `content.get(ptr_raw..ptr_raw + size_of_raw)?` must bail to None.
+        let sect = 64 + 24; // section-table start (pe_off + 24)
+        let mut bin = synth_pe_hybrid(&[0x55u8; 64]);
+        bin[sect + 16..sect + 20].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes()); // SizeOfRawData 4 GiB
+        bin[sect + 20..sect + 24].copy_from_slice(&0u32.to_le_bytes()); // PointerToRawData = 0
+        assert!(unwrap_if_hybrid(&bin).is_none());
+    }
 }
