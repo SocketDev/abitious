@@ -265,10 +265,11 @@ mod tests {
         // A selected package with no `targets` key → `pkg.get("targets")?` None.
         assert!(cdylib_target_name(r#"{ "packages": [ { "name": "a" } ] }"#, Some("a")).is_none());
         // A selected package whose `targets` is not an array → `.as_array()?` None.
-        assert!(
-            cdylib_target_name(r#"{ "packages": [ { "name": "a", "targets": 3 } ] }"#, Some("a"))
-                .is_none()
-        );
+        assert!(cdylib_target_name(
+            r#"{ "packages": [ { "name": "a", "targets": 3 } ] }"#,
+            Some("a")
+        )
+        .is_none());
     }
 
     #[test]

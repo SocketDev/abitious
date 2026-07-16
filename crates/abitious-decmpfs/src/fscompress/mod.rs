@@ -579,7 +579,10 @@ mod tests {
         let sub = dir.join("sub");
         std::fs::create_dir_all(&sub).unwrap();
         let no_name = sub.join(".."); // file_name() is None; parent() is `<dir>/sub` (exists)
-        assert!(no_name.file_name().is_none(), "sanity: `..` has no file_name");
+        assert!(
+            no_name.file_name().is_none(),
+            "sanity: `..` has no file_name"
+        );
         assert!(
             plain_write(&no_name, b"bytes").is_err(),
             "rename onto `..` must fail after the fallback name"

@@ -455,8 +455,10 @@ mod tests {
     #[test]
     fn sha512_file_is_none_on_a_missing_or_unreadable_path() {
         // A path that cannot be opened → the `File::open(..).ok()?` None arm.
-        let missing =
-            std::env::temp_dir().join(format!("abitious-selfextract-sha-missing-{}", std::process::id()));
+        let missing = std::env::temp_dir().join(format!(
+            "abitious-selfextract-sha-missing-{}",
+            std::process::id()
+        ));
         assert!(sha512_file(&missing).is_none());
         // A directory opens but the streaming `read(..)` fails (EISDIR) → the read-loop's
         // `.ok()?` None arm, distinct from the open failure above.
@@ -480,7 +482,10 @@ mod tests {
         // without ever creating a temp.
         let dir = scratch_dir("wa-noname");
         let no_name = dir.join("..");
-        assert!(no_name.file_name().is_none(), "sanity: `..` has no file_name");
+        assert!(
+            no_name.file_name().is_none(),
+            "sanity: `..` has no file_name"
+        );
         assert!(write_atomic(&no_name, b"data").is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
