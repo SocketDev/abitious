@@ -6,3 +6,9 @@
 #   npm/<triple>    → @abitious/<triple> (per-platform prebuilt stub + host producer)
 packages:
   - npm/*
+# Link the workspace @abitious/<triple> packages for @abitious/cli's version-string
+# optionalDependencies (pnpm 11 defaults this to false, which would resolve them from
+# the registry — where they aren't published yet — so they'd be optional-skipped and the
+# lockfile's npm/cli importer would be empty, failing `pnpm install --frozen-lockfile`).
+# decmpfs sets this for the same @scope/<triple> pattern.
+linkWorkspacePackages: true

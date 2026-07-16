@@ -214,7 +214,32 @@ importers:
         specifier: 5.9.2
         version: 5.9.2
 
-  npm/cli: {}
+  npm/cli:
+    optionalDependencies:
+      '@abitious/darwin-arm64':
+        specifier: 0.1.0
+        version: link:../darwin-arm64
+      '@abitious/darwin-x64':
+        specifier: 0.1.0
+        version: link:../darwin-x64
+      '@abitious/linux-arm64-gnu':
+        specifier: 0.1.0
+        version: link:../linux-arm64-gnu
+      '@abitious/linux-arm64-musl':
+        specifier: 0.1.0
+        version: link:../linux-arm64-musl
+      '@abitious/linux-x64-gnu':
+        specifier: 0.1.0
+        version: link:../linux-x64-gnu
+      '@abitious/linux-x64-musl':
+        specifier: 0.1.0
+        version: link:../linux-x64-musl
+      '@abitious/win32-arm64-msvc':
+        specifier: 0.1.0
+        version: link:../win32-arm64-msvc
+      '@abitious/win32-x64-msvc':
+        specifier: 0.1.0
+        version: link:../win32-x64-msvc
 
   npm/darwin-arm64: {}
 
