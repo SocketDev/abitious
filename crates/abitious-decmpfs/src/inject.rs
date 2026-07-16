@@ -669,6 +669,7 @@ pub fn resign(macho: &[u8]) -> Result<Vec<u8>, InjectError> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use crate::{unwrap_if_hybrid, Arch, Libc, Platform};

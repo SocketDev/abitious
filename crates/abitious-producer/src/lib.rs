@@ -13,6 +13,10 @@
 //! message; the write is atomic (temp + rename) so a crash never leaves a partial or
 //! unsigned output at the final path.
 
+// cargo-llvm-cov (nightly) sets `coverage_nightly`, enabling `#[coverage(off)]` on the
+// in-module test block so the report reflects PRODUCTION coverage. A no-op on stable.
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -309,6 +313,7 @@ fn write_atomic(out: &Path, data: &[u8]) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use abitious_decmpfs::{unwrap_if_hybrid, MAGIC_MARKER};
