@@ -139,7 +139,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Human-approval + OIDC gate on the real publish; a dry-run is ungated.
-    environment: ${{ inputs.publish == true && 'release' || '' }}
+    # The environment is same-named as the workflow (fleet convention; matches envrypt).
+    environment: ${{ inputs.publish == true && 'npm-publish' || '' }}
     permissions:
       contents: read
       id-token: write # npm provenance / Trusted Publishing mints its OIDC token

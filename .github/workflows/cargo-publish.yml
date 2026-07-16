@@ -56,7 +56,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Human-approval + OIDC gate on the real, PERMANENT publish; a dry-run is ungated.
-    environment: ${{ inputs.publish == true && 'release' || '' }}
+    # The environment is same-named as the workflow (fleet convention; matches envrypt).
+    environment: ${{ inputs.publish == true && 'cargo-publish' || '' }}
     permissions:
       contents: read
       id-token: write # crates.io Trusted Publishing (OIDC)
