@@ -46,6 +46,41 @@ pub enum Outcome {
     Skipped { reason: SkipReason },
 }
 
+impl Outcome {
+    /// A measured, human-readable one-line description of what happened, for a receipt
+    /// or an `abi inspect` report. The compressing arms report the on-disk allocation
+    /// before/after and the saving; the non-compressing arms (`NoGain`, `Unsupported`,
+    /// `Skipped`) say so plainly AND make the download/install trade-off explicit — a
+    /// hybrid still downloads smaller even where the filesystem stores it uncompressed,
+    /// so the win is "download-only, installed size unchanged on this filesystem".
+    pub fn describe(&self) -> String {
+        match self {
+            Outcome::Compressed { before, after } => {
+                let saved = before.saturating_sub(*after);
+                // checked_div guards the before==0 degenerate case (→ 0%).
+                let pct = saved.saturating_mul(100).checked_div(*before).unwrap_or(0);
+                format!(
+                    "compressed on disk: {after} B allocated (was {before} B) — saved {saved} B ({pct}%)"
+                )
+            }
+            Outcome::NoGain { before, after } => format!(
+                "no on-disk gain: {after} B allocated (was {before} B), incompressible or \
+                 sub-cluster — download-only savings, installed size unchanged on this filesystem"
+            ),
+            Outcome::AlreadyCompressed { before } => {
+                format!("already FS-compressed: {before} B allocated on disk")
+            }
+            Outcome::Unsupported { reason } => format!(
+                "no transparent compression here ({reason}) — download-only savings, installed \
+                 size unchanged on this filesystem"
+            ),
+            Outcome::Skipped { reason } => format!(
+                "not FS-compressed ({reason}) — download-only savings, installed size unchanged"
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedReason {
     /// Filesystem (by allowlist) has no transparent compression.
@@ -74,6 +109,33 @@ pub enum SkipReason {
     TooLarge,
     /// `compress_bytes` was handed a file the `Gate` excludes — written plain.
     GateExcluded,
+}
+
+impl std::fmt::Display for UnsupportedReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            UnsupportedReason::Filesystem => "filesystem has no per-file compression",
+            UnsupportedReason::NetworkOrOverlay => "network or overlay mount",
+            UnsupportedReason::PlatformBuild => "no backend for this OS build",
+        };
+        f.write_str(msg)
+    }
+}
+
+impl std::fmt::Display for SkipReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            SkipReason::PermissionDenied => "permission denied",
+            SkipReason::Busy => "file busy or locked",
+            SkipReason::Immutable => "immutable flag set",
+            SkipReason::Encrypted => "filesystem-encrypted",
+            SkipReason::IntegrityRevert => "structural verification reverted it",
+            SkipReason::NotLoadable => "post-apply loadability check reverted it",
+            SkipReason::TooLarge => "exceeds a backend size limit",
+            SkipReason::GateExcluded => "excluded by the compression gate",
+        };
+        f.write_str(msg)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -856,5 +918,87 @@ mod tests {
         );
         assert_eq!(std::fs::read(&path).unwrap(), content, "bytes landed plain");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn outcome_describe_measures_the_compressing_arms() {
+        let c = Outcome::Compressed {
+            before: 1000,
+            after: 400,
+        }
+        .describe();
+        assert!(c.contains("saved 600 B") && c.contains("(60%)"), "{c}");
+        let a = Outcome::AlreadyCompressed { before: 512 }.describe();
+        assert!(
+            a.contains("already FS-compressed") && a.contains("512 B"),
+            "{a}"
+        );
+        // A degenerate before==0 must not divide by zero.
+        let z = Outcome::Compressed {
+            before: 0,
+            after: 0,
+        }
+        .describe();
+        assert!(z.contains("(0%)"), "{z}");
+    }
+
+    #[test]
+    fn outcome_describe_surfaces_the_download_only_message_for_non_compressing_arms() {
+        for out in [
+            Outcome::NoGain {
+                before: 100,
+                after: 100,
+            },
+            Outcome::Unsupported {
+                reason: UnsupportedReason::Filesystem,
+            },
+            Outcome::Skipped {
+                reason: SkipReason::TooLarge,
+            },
+        ] {
+            let msg = out.describe();
+            assert!(
+                msg.contains("download-only savings"),
+                "{out:?} → {msg} lacks the download-only framing"
+            );
+        }
+        // The reason is named in the message.
+        assert!(Outcome::Unsupported {
+            reason: UnsupportedReason::NetworkOrOverlay,
+        }
+        .describe()
+        .contains("network or overlay"));
+        assert!(Outcome::Skipped {
+            reason: SkipReason::GateExcluded,
+        }
+        .describe()
+        .contains("excluded by the compression gate"));
+    }
+
+    #[test]
+    fn reason_display_is_distinct_and_non_empty() {
+        let unsupported = [
+            UnsupportedReason::Filesystem,
+            UnsupportedReason::NetworkOrOverlay,
+            UnsupportedReason::PlatformBuild,
+        ]
+        .map(|r| r.to_string());
+        let skips = [
+            SkipReason::PermissionDenied,
+            SkipReason::Busy,
+            SkipReason::Immutable,
+            SkipReason::Encrypted,
+            SkipReason::IntegrityRevert,
+            SkipReason::NotLoadable,
+            SkipReason::TooLarge,
+            SkipReason::GateExcluded,
+        ]
+        .map(|r| r.to_string());
+        let mut all: Vec<String> = unsupported.into_iter().chain(skips).collect();
+        assert!(all.iter().all(|m| !m.is_empty()));
+        let n = all.len();
+        all.sort();
+        all.dedup();
+        assert_eq!(all.len(), n, "every reason message must be unique");
     }
 }

@@ -13,6 +13,14 @@ categories = ["development-tools", "command-line-utilities"]
 name = "abi"
 path = "src/main.rs"
 
+[lints.rust]
+# `coverage` / `coverage_nightly` are set by cargo-llvm-cov (nightly) to gate the
+# `#[coverage(off)]` test-module markers; declare them so stable builds don't warn.
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(coverage)',
+    'cfg(coverage_nightly)',
+] }
+
 # The CLI is a HOST build-time tool. It drives the shared `compress_node` library
 # (abitious-producer, which pulls apple-codesign via `resign` — the accepted
 # producer-only exception) and the reader (abitious-decmpfs) for the round-trip oracle.

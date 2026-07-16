@@ -114,6 +114,7 @@ fn cdylib_name_of(pkg: &Json) -> Option<String> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

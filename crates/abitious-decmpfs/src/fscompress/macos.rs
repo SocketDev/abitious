@@ -488,6 +488,23 @@ mod tests {
     }
 
     #[test]
+    fn build_resource_fork_serial_env_forces_the_single_worker_path() {
+        // DECMPFS_SERIAL forces workers=1 — the deterministic single-thread branch (and the
+        // A/B baseline for the parallel win). Set it only for this call; the result must
+        // still be a well-formed resource fork. Serial vs parallel produce identical bytes,
+        // so a concurrent test transiently seeing this env is harmless.
+        std::env::set_var("DECMPFS_SERIAL", "1");
+        let raw = vec![0x41u8; BLOCK * 10]; // >= 8 blocks: parallel would otherwise engage
+        let rf = build_resource_fork(&raw);
+        std::env::remove_var("DECMPFS_SERIAL");
+        let rf = rf.expect("serial path still encodes");
+        let num_blocks = raw.len().div_ceil(BLOCK);
+        let last_idx = num_blocks * 4;
+        let last = u32::from_le_bytes(rf[last_idx..last_idx + 4].try_into().unwrap()) as usize;
+        assert_eq!(last, rf.len(), "last offset equals the buffer length");
+    }
+
+    #[test]
     fn build_resource_fork_zero_length_is_well_formed() {
         // A 0-byte file must produce a consistent single-entry table (offset[0] ==
         // total length), not a 2-entry-sized header pointing past a 4-byte blob.

@@ -74,7 +74,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          persist-credentials: false
+      # No `cache:` input is set, so setup-node does not cache here; the release-trigger
+      # cache-poisoning heuristic is a low-confidence false positive.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0 # zizmor: ignore[cache-poisoning]
         with:
           node-version: 24
       - name: gen-packages --check (out-of-sync with targets.mts fails)
@@ -95,7 +99,11 @@ jobs:
       matrix: ${{ steps.gen.outputs.matrix }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          persist-credentials: false
+      # No `cache:` input is set, so setup-node does not cache here; the release-trigger
+      # cache-poisoning heuristic is a low-confidence false positive.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0 # zizmor: ignore[cache-poisoning]
         with:
           node-version: 24
       - id: gen
@@ -114,7 +122,11 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          persist-credentials: false
+      # No `cache:` input is set, so setup-node does not cache here; the release-trigger
+      # cache-poisoning heuristic is a low-confidence false positive.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0 # zizmor: ignore[cache-poisoning]
         with:
           node-version: 24
       # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-07-12); keep the
@@ -123,25 +135,36 @@ jobs:
         with:
           toolchain: nightly-2026-07-12
           targets: ${{ matrix.rust }}
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      # save-if below is the real mitigation (only a push to main populates the shared
+      # cache, so a PR or the privileged `release` run can neither poison it nor bake a
+      # poisoned entry into a release); the restore-side heuristic is acknowledged here.
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2 # zizmor: ignore[cache-poisoning]
         with:
           key: ${{ matrix.triple }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: install musl toolchain (musl targets only)
         if: ${{ matrix.libc == 'musl' }}
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: build the generic stub cdylib + the host abi producer
+        env:
+          RUST_TARGET: ${{ matrix.rust }}
         run: |
           set -euo pipefail
-          cargo build -p abitious-stub --release --target "${{ matrix.rust }}"
-          cargo build -p abitious --release --target "${{ matrix.rust }}"
+          cargo build -p abitious-stub --release --target "$RUST_TARGET"
+          cargo build -p abitious --release --target "$RUST_TARGET"
       - name: stage the @abitious/${{ matrix.triple }} package
+        env:
+          TRIPLE: ${{ matrix.triple }}
+          RUST_TARGET: ${{ matrix.rust }}
+          STUB_ARTIFACT: ${{ matrix.stubArtifact }}
+          BIN: ${{ matrix.bin }}
         run: |
           set -euo pipefail
           node scripts/gen-packages.mts
-          dest="npm/${{ matrix.triple }}"
-          out="target/${{ matrix.rust }}/release"
-          cp "${out}/${{ matrix.stubArtifact }}" "${dest}/stub.node"
-          cp "${out}/${{ matrix.bin }}" "${dest}/${{ matrix.bin }}"
+          dest="npm/${TRIPLE}"
+          out="target/${RUST_TARGET}/release"
+          cp "${out}/${STUB_ARTIFACT}" "${dest}/stub.node"
+          cp "${out}/${BIN}" "${dest}/${BIN}"
           ls -la "${dest}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -175,4 +198,5 @@ jobs:
       - name: attach artifacts to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" out/* --clobber
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" out/* --clobber

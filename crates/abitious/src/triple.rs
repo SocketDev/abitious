@@ -60,6 +60,7 @@ fn abi_suffix(platform: Platform, libc: Libc) -> &'static str {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

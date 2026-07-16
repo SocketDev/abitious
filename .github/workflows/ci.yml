@@ -1,0 +1,185 @@
+name: ⚡ CI
+
+# Dependencies: none — self-contained.
+#
+# Every push/PR: zizmor audits the workflows, then a matrix builds + tests the
+# workspace on each publish platform's OS family (fmt / clippy -D warnings /
+# `cargo test --workspace --locked`, incl. the frozen pressed-data interop
+# tripwire), and a dedicated job enforces the POSITIVE dependency-budget allowlist.
+#
+# The dep budget (CLAUDE.md / fleet discipline): the crates SHIPPED to users — the
+# self-extracting stub (`abitious-stub`) and the reader/ABI it links (`abitious-decmpfs`
+# with DEFAULT features, i.e. NO `resign`) — must pull only an audited pure-Rust set, so a
+# NEW crate anywhere in that tree fails the build (a positive allowlist, not just a
+# banlist). The SOLE documented exception is the producer-only `resign` feature
+# (apple-codesign, which unconditionally pulls reqwest/tokio/hyper): it is macOS-target-
+# gated + off by default, so it never reaches the shipped stub/reader tree — only the host
+# build-time `abitious-producer` / `abi` CLI enable it.
+#
+# Every action is pinned to a commit SHA (SocketDev sha_pinning_required); the zizmor
+# binary is pinned to a version + SHA-512, mirroring decmpfs's ci.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# No-phone-home posture: every tool this CI touches runs telemetry-off.
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: '1'
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+  COREPACK_ENABLE_PROJECT_SPEC: '0'
+  DISABLE_TELEMETRY: '1'
+  DO_NOT_TRACK: '1'
+  NO_UPDATE_NOTIFIER: '1'
+
+jobs:
+  audit:
+    name: 🛡️ Audit workflows (zizmor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0 (2026-06-29)
+        with:
+          persist-credentials: false
+      - name: Install zizmor (pinned, integrity-verified)
+        run: |
+          set -euo pipefail
+          VERSION="v1.25.2"
+          ASSET="zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          SHA512_B64="FSmYWvlOzySHwlI2IkoEQNHfRU/UitumuQJc+umYyYcDr50colg0Bzio74YS19sGH41leMdXu4KJtB5XM45eUg=="
+          curl -fsSL --retry 3 -o /tmp/zizmor.tar.gz \
+            "https://github.com/zizmorcore/zizmor/releases/download/${VERSION}/${ASSET}"
+          GOT="$(openssl dgst -sha512 -binary /tmp/zizmor.tar.gz | openssl base64 -A)"
+          if [ "$GOT" != "$SHA512_B64" ]; then
+            echo "zizmor integrity mismatch for ${ASSET}@${VERSION}" >&2
+            echo "  expected sha512(b64): $SHA512_B64" >&2
+            echo "  got      sha512(b64): $GOT" >&2
+            echo "  Fix: re-pin VERSION + SHA512_B64 in ci.yml" >&2
+            exit 1
+          fi
+          tar -xzf /tmp/zizmor.tar.gz -C /tmp
+          install -m 0755 "$(find /tmp -maxdepth 2 -name zizmor -type f | head -1)" /usr/local/bin/zizmor
+      - name: Audit .github
+        run: zizmor --min-severity medium .github/
+
+  test:
+    name: 🧪 Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0 (2026-06-29)
+        with:
+          persist-credentials: false
+      # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-07-12); keep the
+      # `toolchain:` here in lockstep with it + build.yml.
+      - uses: dtolnay/rust-toolchain@efcb852328a9f50117170cc43094fb6f09eaf1ae # nightly
+        with:
+          toolchain: nightly-2026-07-12
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: ${{ matrix.os }}
+      - name: rustfmt
+        run: cargo fmt --all --check
+      # Per-OS clippy lints every cfg-selected backend (linux/macos/windows fscompress).
+      - name: clippy (all targets, deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test (workspace, locked, incl. the frozen interop tripwire)
+        run: cargo test --workspace --locked
+
+  deps:
+    name: 📦 Dependency budget (positive allowlist)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0 (2026-06-29)
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@efcb852328a9f50117170cc43094fb6f09eaf1ae # nightly
+        with:
+          toolchain: nightly-2026-07-12
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: positive allowlist — the shipped stub/reader tree is the audited set only
+        run: |
+          set -euo pipefail
+          # The audited pure-Rust shipped dependency set. ADD a crate here only after
+          # auditing it (no HTTP/async/openssl/codesign machinery). sha2 (+ its RustCrypto
+          # digest stack) is the SHA-512 payload integrity + SHA-256 cache key; zstd
+          # (+ zstd-safe/zstd-sys, bundled libzstd) is the one codec end to end; libc is
+          # the dladdr/getuid/dlopen runtime seam.
+          cat > /tmp/allow.txt <<'EOF'
+          abitious-decmpfs
+          abitious-stub
+          block-buffer
+          cfg-if
+          cpufeatures
+          crypto-common
+          digest
+          generic-array
+          libc
+          sha2
+          typenum
+          zstd
+          zstd-safe
+          zstd-sys
+          EOF
+          awk 'NF{print $1}' /tmp/allow.txt | sort -u > /tmp/allow.sorted && mv /tmp/allow.sorted /tmp/allow.txt
+          # The union of the two shipped-crate trees (default features → no resign).
+          {
+            cargo tree -e normal -p abitious-decmpfs --prefix none
+            cargo tree -e normal -p abitious-stub --prefix none
+          } | awk '{print $1}' | grep -vE '^$' | sort -u > /tmp/tree.txt
+          echo "=== shipped -e normal tree (abitious-decmpfs default + abitious-stub) ==="; cat /tmp/tree.txt
+          extra=$(comm -23 /tmp/tree.txt /tmp/allow.txt || true)
+          if [ -n "$extra" ]; then
+            echo "::error::the shipped tree pulled crate(s) not on the audited allowlist:"
+            echo "$extra"
+            echo "audit the crate, then add it to the allowlist in .github/workflows/ci.yml"
+            exit 1
+          fi
+          echo "OK — every shipped dependency is on the audited allowlist"
+      - name: banlist (secondary) — no HTTP/async/codesign/CLI crates on the shipped tree
+        run: |
+          set -euo pipefail
+          tree=$(cargo tree -e normal -p abitious-decmpfs; cargo tree -e normal -p abitious-stub)
+          # apple-codesign/reqwest/tokio/hyper (the producer-only resign exception);
+          # openssl-sys (pure-Rust crypto only); clap/serde_json (hand-rolled instead).
+          if echo "$tree" | grep -Eiq 'apple-codesign|reqwest|(^|[^-])tokio |hyper |openssl-sys|(^|[^-])clap |serde_json'; then
+            echo "::error::the shipped stub/reader tree pulled a banned HTTP/async/codesign/CLI crate"
+            echo "$tree" | grep -Ei 'apple-codesign|reqwest|tokio|hyper|openssl-sys|clap|serde_json'
+            exit 1
+          fi
+          echo "no banned crates on the shipped tree (the resign/apple-codesign chain stays producer-only)"
+      - name: no openssl-sys anywhere (incl. the producer resign exception, dev/build deps)
+        run: |
+          set -euo pipefail
+          # Default-features workspace graph (the producer's apple-codesign uses rustls +
+          # RustCrypto, so even the exception is openssl-free).
+          full=$(cargo tree --workspace -e normal,build,dev)
+          if echo "$full" | grep -iq 'openssl-sys'; then
+            echo "::error::openssl-sys present in the dependency graph (pure-Rust crypto only)"
+            echo "$full" | grep -i 'openssl'
+            exit 1
+          fi
+          echo "no openssl-sys in the workspace graph"

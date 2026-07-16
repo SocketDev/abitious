@@ -166,6 +166,19 @@ mod tests {
         assert!(readback_matches(std::path::Path::new("/no/such/rb/x"), b"x").is_err());
     }
 
+    // Opening a directory succeeds on unix, but the loop's first read() fails (EISDIR) —
+    // exercising the in-loop read-error arm distinct from the open-error arm above.
+    #[cfg(unix)]
+    #[test]
+    fn readback_matches_errors_when_a_read_fails_after_open() {
+        let dir = scratch("rb-readfail");
+        assert!(
+            readback_matches(&dir, b"x").is_err(),
+            "reading a directory fd errors mid-loop"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn measures_allocation_and_reads_magic() {
         let dir =

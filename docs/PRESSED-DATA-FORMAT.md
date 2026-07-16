@@ -77,10 +77,25 @@ caches / installers, not required to recover the addon).
 ## Two load paths
 
 - **Self-extract at `dlopen`** (plain npm): the generic stub reads its own
-  `PRESSED_DATA` section, verifies + decodes, and `dlopen`s the recovered addon.
+  `PRESSED_DATA` section, verifies + decodes, and extracts the recovered addon to
+  a per-uid, content-addressed cache under `$TMPDIR`, then `dlopen`s it
+  (`abitious_decmpfs::selfextract`). A warm cache hit is reused only after its
+  **SHA-512 is re-verified** against the just-decoded addon, so a poisoned or
+  corrupted cache entry in a shared `/tmp` is never `dlopen`ed (the per-uid dir is
+  created `0700` and refused if pre-planted as a symlink / wrong-owner).
 - **Unwrap + kernel-recompress at install** (decmpfs-aware package managers):
-  the installer calls `unwrap_if_hybrid`, stores the recovered raw addon with
-  filesystem compression, and the kernel decompresses it on read.
+  the installer calls `unwrap_if_hybrid` (or `install_hybrid`), stores the
+  recovered raw addon with filesystem compression, and the kernel decompresses it
+  on read.
+
+## Inspecting a hybrid
+
+`abi inspect <file.node>` prints this header — magic, compressed/uncompressed
+sizes, the cache key, the platform/arch/libc target, `has_config`, and whether
+`SHA-512(payload)` verifies — without decompressing (`--json` for a machine
+report). `abi inspect --decompress <file.node> [-o out]` recovers the raw addon.
+The same header fields are exposed programmatically by
+`abitious_decmpfs::inspect_hybrid` / `read_section_info` (returning a `SectionInfo`).
 
 ## Codec
 

@@ -307,6 +307,7 @@ fn utf8_len(lead: u8) -> usize {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

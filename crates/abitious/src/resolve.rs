@@ -49,6 +49,7 @@ pub fn stub_not_found_error(triple: &str, start_dir: &Path) -> String {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 

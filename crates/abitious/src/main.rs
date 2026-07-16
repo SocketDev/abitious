@@ -1,20 +1,30 @@
-//! `abi` — the abitious build CLI.
+//! `abi` — the abitious build/inspect CLI.
 //!
-//! `abi build [--compress] [--compress-level N] [--release] [--stub <path>] [-p <package>]
-//! [--out <path>]` cargo-builds a napi cdylib for the HOST triple, resolves its `.node`
-//! artifact (porting napi-rs `build.ts`'s cdylib resolution), and — with `--compress` —
-//! turns it into a self-loading hybrid `.node` via the shared
-//! [`abitious_producer::compress_node`] library. No JS fallback, no cross matrix (that is
-//! M6); every failure is a LOUD What / Where / Saw / Fix message.
+//! Two subcommands:
 //!
-//! The parsing and path-resolution logic lives in pure, unit-tested modules ([`args`],
-//! [`metadata`], [`json`]); [`build`] holds the process orchestration.
+//! * `abi build [--compress] [--compress-level N] [--release] [--stub <path>] [-p <package>]
+//!   [--out <path>]` cargo-builds a napi cdylib for the HOST triple, resolves its `.node`
+//!   artifact (porting napi-rs `build.ts`'s cdylib resolution), and — with `--compress` —
+//!   turns it into a self-loading hybrid `.node` via the shared
+//!   [`abitious_producer::compress_node`] library (the stub auto-resolved from an installed
+//!   `@abitious/<triple>` package, or `--stub`).
+//! * `abi inspect <file.node> [--json] [--decompress [-o <path>]]` reports a hybrid's
+//!   pressed-data section (sizes, cache key, target, integrity) or extracts the raw addon
+//!   back out — a plain (non-hybrid) `.node` is reported plainly, not an error.
+//!
+//! Every failure is a LOUD What / Where / Saw / Fix message. The parsing and
+//! path-resolution logic lives in pure, unit-tested modules ([`args`], [`metadata`],
+//! [`json`]); [`build`] and [`inspect`] hold the process orchestration.
 
 // stdout (receipts / usage) and stderr (LOUD errors) ARE this binary's interface.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
+// cargo-llvm-cov (nightly) sets `coverage_nightly`, enabling `#[coverage(off)]` on the
+// in-module test blocks so the report reflects PRODUCTION coverage. A no-op on stable.
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
 mod args;
 mod build;
+mod inspect;
 mod json;
 mod metadata;
 mod resolve;
@@ -57,5 +67,12 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Command::Inspect(inspect_args) => match inspect::run(&inspect_args) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("{message}");
+                ExitCode::FAILURE
+            }
+        },
     }
 }

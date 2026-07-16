@@ -183,6 +183,44 @@ impl Libc {
     }
 }
 
+impl Platform {
+    /// Map a stored platform enum byte back to a [`Platform`], or `None` for an
+    /// unrecognized value (a tool inspecting a hybrid keeps the raw byte in that case).
+    pub fn from_u8(byte: u8) -> Option<Platform> {
+        match byte {
+            0 => Some(Platform::Linux),
+            1 => Some(Platform::Darwin),
+            2 => Some(Platform::Win32),
+            _ => None,
+        }
+    }
+}
+
+impl Arch {
+    /// Map a stored arch enum byte back to an [`Arch`], or `None` for an unrecognized value.
+    pub fn from_u8(byte: u8) -> Option<Arch> {
+        match byte {
+            0 => Some(Arch::X64),
+            1 => Some(Arch::Arm64),
+            2 => Some(Arch::Ia32),
+            3 => Some(Arch::Arm),
+            _ => None,
+        }
+    }
+}
+
+impl Libc {
+    /// Map a stored libc enum byte back to a [`Libc`], or `None` for an unrecognized value.
+    pub fn from_u8(byte: u8) -> Option<Libc> {
+        match byte {
+            0 => Some(Libc::Glibc),
+            1 => Some(Libc::Musl),
+            255 => Some(Libc::Na),
+            _ => None,
+        }
+    }
+}
+
 /// Build a pressed-data section blob from a raw `.node` addon: zstd-encode it at
 /// `level`, then frame it with the frozen header (magic, sizes, the SHA-256-prefix
 /// cache key, the platform/arch/libc bytes, the SHA-512 payload integrity, and
@@ -231,14 +269,30 @@ pub fn unwrap_if_hybrid(content: &[u8]) -> Option<Vec<u8>> {
     decode_pressed_data(section)
 }
 
-/// Parse a pressed-data blob (magic + header + zstd payload) into the raw addon.
-/// Split from section-finding so the format round-trips in a unit test without
-/// synthesizing a whole Mach-O/ELF/PE. Byte-faithful to decmpfs's reader.
-pub fn decode_pressed_data(section: &[u8]) -> Option<Vec<u8>> {
-    if section.len() < HEADER_LEN {
-        return None;
-    }
-    if &section[..MAGIC_MARKER.len()] != MAGIC_MARKER.as_slice() {
+/// The parsed fixed header of a pressed-data section (every field before the zstd
+/// payload) plus `payload_at`, the byte offset the payload begins at. The frozen
+/// field offsets live here in exactly ONE place, shared by [`decode_pressed_data`]
+/// (which then decompresses) and [`read_section_info`] (which never does), so the two
+/// readers can never drift from the layout in `docs/PRESSED-DATA-FORMAT.md`.
+struct ParsedHeader {
+    compressed_size: u64,
+    uncompressed_size: u64,
+    cache_key: [u8; CACHE_KEY_LEN],
+    platform: u8,
+    arch: u8,
+    libc: u8,
+    integrity: [u8; INTEGRITY_HASH_LEN],
+    has_config: bool,
+    payload_at: usize,
+}
+
+/// Parse the frozen fixed header out of a pressed-data blob (magic, sizes, cache key,
+/// platform bytes, integrity, has_config), returning the fields and the offset the zstd
+/// payload starts at. `None` if the buffer is too short or lacks the magic marker. Never
+/// touches the payload — no decompression, no size/DoS gating (the callers apply those
+/// where they matter).
+fn parse_header(section: &[u8]) -> Option<ParsedHeader> {
+    if section.len() < HEADER_LEN || &section[..MAGIC_MARKER.len()] != MAGIC_MARKER.as_slice() {
         return None;
     }
     let mut at = MAGIC_MARKER.len();
@@ -246,38 +300,136 @@ pub fn decode_pressed_data(section: &[u8]) -> Option<Vec<u8>> {
     at += 8;
     let uncompressed_size = read_u64_le(section, at)?;
     at += 8;
-    // Skip the cache key + platform metadata (not needed to decode).
-    at += CACHE_KEY_LEN + PLATFORM_METADATA_LEN;
-    let integrity = section.get(at..at + INTEGRITY_HASH_LEN)?;
-    let mut hash = [0u8; INTEGRITY_HASH_LEN];
-    hash.copy_from_slice(integrity);
+    let mut cache_key = [0u8; CACHE_KEY_LEN];
+    cache_key.copy_from_slice(section.get(at..at + CACHE_KEY_LEN)?);
+    at += CACHE_KEY_LEN;
+    let platform = *section.get(at)?;
+    let arch = *section.get(at + 1)?;
+    let libc = *section.get(at + 2)?;
+    at += PLATFORM_METADATA_LEN;
+    let mut integrity = [0u8; INTEGRITY_HASH_LEN];
+    integrity.copy_from_slice(section.get(at..at + INTEGRITY_HASH_LEN)?);
     at += INTEGRITY_HASH_LEN;
-    let has_config = *section.get(at)?;
+    let has_config = *section.get(at)? != 0;
     at += SMOL_CONFIG_FLAG_LEN;
-    if has_config != 0 {
-        at = at.checked_add(SMOL_CONFIG_BINARY_LEN)?;
-    }
+    let payload_at = if has_config {
+        at.checked_add(SMOL_CONFIG_BINARY_LEN)?
+    } else {
+        at
+    };
+    Some(ParsedHeader {
+        compressed_size,
+        uncompressed_size,
+        cache_key,
+        platform,
+        arch,
+        libc,
+        integrity,
+        has_config,
+        payload_at,
+    })
+}
 
-    if compressed_size == 0
-        || uncompressed_size == 0
-        || uncompressed_size > MAX_DECOMPRESSED
-        || compressed_size > MAX_DECOMPRESSED
+/// Parse a pressed-data blob (magic + header + zstd payload) into the raw addon.
+/// Split from section-finding so the format round-trips in a unit test without
+/// synthesizing a whole Mach-O/ELF/PE. Byte-faithful to decmpfs's reader.
+pub fn decode_pressed_data(section: &[u8]) -> Option<Vec<u8>> {
+    let header = parse_header(section)?;
+
+    if header.compressed_size == 0
+        || header.uncompressed_size == 0
+        || header.uncompressed_size > MAX_DECOMPRESSED
+        || header.compressed_size > MAX_DECOMPRESSED
     {
         return None;
     }
-    let payload = section.get(at..at.checked_add(compressed_size as usize)?)?;
+    let payload = section.get(
+        header.payload_at
+            ..header
+                .payload_at
+                .checked_add(header.compressed_size as usize)?,
+    )?;
 
     // Integrity: SHA-512 of the zstd payload, BEFORE decompressing (reject a
     // tampered frame up front).
-    if Sha512::digest(payload).as_slice() != hash {
+    if Sha512::digest(payload).as_slice() != header.integrity {
         return None;
     }
 
     let raw = zstd::stream::decode_all(payload).ok()?;
-    if raw.len() as u64 != uncompressed_size {
+    if raw.len() as u64 != header.uncompressed_size {
         return None;
     }
     Some(raw)
+}
+
+/// A non-decoding view of a pressed-data section's fixed header + integrity status —
+/// what `abi inspect` reports without paying to decompress the payload. Produced by
+/// [`inspect_hybrid`] (from a whole binary) or [`read_section_info`] (from a bare
+/// section blob).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SectionInfo {
+    /// The zstd payload length claimed by the header.
+    pub compressed_size: u64,
+    /// The raw addon length claimed by the header.
+    pub uncompressed_size: u64,
+    /// The 16-byte content-address (first 16 bytes of `SHA-256(raw addon)`).
+    pub cache_key: [u8; CACHE_KEY_LEN],
+    /// The raw platform enum byte, and its decoded [`Platform`] when recognized.
+    pub platform_byte: u8,
+    /// Decoded platform, or `None` for an unrecognized byte.
+    pub platform: Option<Platform>,
+    /// The raw arch enum byte.
+    pub arch_byte: u8,
+    /// Decoded arch, or `None` for an unrecognized byte.
+    pub arch: Option<Arch>,
+    /// The raw libc enum byte.
+    pub libc_byte: u8,
+    /// Decoded libc, or `None` for an unrecognized byte.
+    pub libc: Option<Libc>,
+    /// The `has_config` flag (abitious always emits `false`).
+    pub has_config: bool,
+    /// `true` when `SHA-512(payload)` matches the stored integrity hash — the same
+    /// check [`decode_pressed_data`] gates on, computed here WITHOUT decompressing.
+    /// `false` if the payload is missing/out-of-range or the hash differs.
+    pub integrity_verified: bool,
+}
+
+/// If `content` is a pressed-data hybrid, locate its section and read its header +
+/// integrity status ([`SectionInfo`]) WITHOUT decompressing the payload; otherwise
+/// `None` (a plain, non-hybrid file). The inspection counterpart of
+/// [`unwrap_if_hybrid`].
+pub fn inspect_hybrid(content: &[u8]) -> Option<SectionInfo> {
+    read_section_info(find_pressed_data_section(content)?)
+}
+
+/// Parse a bare pressed-data section blob into a [`SectionInfo`] — the header fields
+/// plus whether `SHA-512(payload)` matches the stored integrity hash — without
+/// decompressing. `None` if the blob is too short or lacks the magic marker.
+pub fn read_section_info(section: &[u8]) -> Option<SectionInfo> {
+    let header = parse_header(section)?;
+    // Verify integrity exactly as the decoder does (SHA-512 of the zstd payload),
+    // but stop there — no decompression, so inspecting a huge hybrid stays cheap.
+    let integrity_verified = header.compressed_size > 0
+        && header.compressed_size <= MAX_DECOMPRESSED
+        && header
+            .payload_at
+            .checked_add(header.compressed_size as usize)
+            .and_then(|end| section.get(header.payload_at..end))
+            .is_some_and(|payload| Sha512::digest(payload).as_slice() == header.integrity);
+    Some(SectionInfo {
+        compressed_size: header.compressed_size,
+        uncompressed_size: header.uncompressed_size,
+        cache_key: header.cache_key,
+        platform_byte: header.platform,
+        platform: Platform::from_u8(header.platform),
+        arch_byte: header.arch,
+        arch: Arch::from_u8(header.arch),
+        libc_byte: header.libc,
+        libc: Libc::from_u8(header.libc),
+        has_config: header.has_config,
+        integrity_verified,
+    })
 }
 
 /// Read the 16-byte cache key stamped into a pressed-data section blob (the first 16
@@ -437,6 +589,7 @@ fn cstr_at(strtab: &[u8], off: usize) -> Option<&[u8]> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 
@@ -708,5 +861,142 @@ mod tests {
             "plain addon landed as-is"
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn read_section_info_reports_the_header_and_verifies_integrity() {
+        let raw = vec![0x7bu8; 5000];
+        let section = build_section_payload(&raw, Platform::Linux, Arch::X64, Libc::Musl, 16);
+        let info = read_section_info(&section).expect("a valid section parses");
+        assert_eq!(info.uncompressed_size, raw.len() as u64);
+        assert_eq!(
+            info.compressed_size,
+            section.len() as u64 - HEADER_LEN as u64
+        );
+        assert_eq!(info.cache_key, &Sha256::digest(&raw)[..CACHE_KEY_LEN]);
+        assert_eq!(info.platform, Some(Platform::Linux));
+        assert_eq!(info.arch, Some(Arch::X64));
+        assert_eq!(info.libc, Some(Libc::Musl));
+        assert_eq!(
+            (info.platform_byte, info.arch_byte, info.libc_byte),
+            (0, 0, 1)
+        );
+        assert!(!info.has_config);
+        assert!(info.integrity_verified, "a producer section verifies");
+    }
+
+    #[test]
+    fn read_section_info_flags_a_tampered_payload_as_unverified() {
+        let raw = vec![0x33u8; 3000];
+        let mut section = build_section_payload(&raw, Platform::Darwin, Arch::Arm64, Libc::Na, 9);
+        // Flip a payload byte: the header still parses, but SHA-512 no longer matches.
+        let last = section.len() - 1;
+        section[last] ^= 0xff;
+        let info = read_section_info(&section).expect("header still parses");
+        assert!(
+            !info.integrity_verified,
+            "a tampered payload must read as unverified"
+        );
+        // And it does NOT decode — the inspector's verdict matches the decoder's.
+        assert!(decode_pressed_data(&section).is_none());
+    }
+
+    #[test]
+    fn read_section_info_none_on_too_short_or_unmarked() {
+        assert!(read_section_info(&[0u8; 8]).is_none());
+        assert!(read_section_info(&[0u8; HEADER_LEN]).is_none()); // right length, no magic
+        assert!(inspect_hybrid(b"not a binary").is_none());
+    }
+
+    #[test]
+    fn inspect_hybrid_reads_a_synthetic_macho_section() {
+        // Reuse the synthetic Mach-O the decode test builds; inspect_hybrid must find and
+        // parse the same section it decodes.
+        let raw = vec![0x42u8; 3000];
+        let blob = build_section_payload(&raw, Platform::Darwin, Arch::Arm64, Libc::Na, 16);
+        const LC_SEGMENT_64: u32 = 0x19;
+        let seg_cmd_len = 72 + 80;
+        let blob_off = 32 + seg_cmd_len;
+        let mut bin = vec![0u8; blob_off];
+        bin[0..4].copy_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
+        bin[16..20].copy_from_slice(&1u32.to_le_bytes());
+        let seg = 32;
+        bin[seg..seg + 4].copy_from_slice(&LC_SEGMENT_64.to_le_bytes());
+        bin[seg + 4..seg + 8].copy_from_slice(&(seg_cmd_len as u32).to_le_bytes());
+        bin[seg + 8..seg + 12].copy_from_slice(b"SMOL");
+        bin[seg + 64..seg + 68].copy_from_slice(&1u32.to_le_bytes());
+        let sect = seg + 72;
+        bin[sect..sect + 14].copy_from_slice(b"__PRESSED_DATA");
+        bin[sect + 40..sect + 48].copy_from_slice(&(blob.len() as u64).to_le_bytes());
+        bin[sect + 48..sect + 52].copy_from_slice(&(blob_off as u32).to_le_bytes());
+        bin.extend_from_slice(&blob);
+        let info = inspect_hybrid(&bin).expect("finds + parses the section");
+        assert_eq!(info.platform, Some(Platform::Darwin));
+        assert_eq!(info.uncompressed_size, raw.len() as u64);
+        assert!(info.integrity_verified);
+    }
+
+    #[test]
+    fn read_section_info_keeps_raw_bytes_for_unknown_enums() {
+        // A section whose platform/arch/libc bytes are unrecognized: the decoded enums
+        // are None but the raw bytes are preserved for a report.
+        let raw = vec![0x01u8; 200];
+        let mut section = build_section_payload(&raw, Platform::Linux, Arch::X64, Libc::Glibc, 3);
+        let p = MAGIC_MARKER.len() + SIZE_HEADER_LEN + CACHE_KEY_LEN;
+        section[p] = 200; // bogus platform
+        section[p + 1] = 201; // bogus arch
+        section[p + 2] = 202; // bogus libc
+        let info = read_section_info(&section).unwrap();
+        assert_eq!((info.platform, info.arch, info.libc), (None, None, None));
+        assert_eq!(
+            (info.platform_byte, info.arch_byte, info.libc_byte),
+            (200, 201, 202)
+        );
+    }
+
+    #[test]
+    fn enum_from_u8_round_trips_and_rejects_unknown() {
+        // Every arm of each from_u8 (the reverse of the frozen enum bytes).
+        assert_eq!(Platform::from_u8(0), Some(Platform::Linux));
+        assert_eq!(Platform::from_u8(1), Some(Platform::Darwin));
+        assert_eq!(Platform::from_u8(2), Some(Platform::Win32));
+        assert_eq!(Platform::from_u8(9), None);
+        assert_eq!(Arch::from_u8(0), Some(Arch::X64));
+        assert_eq!(Arch::from_u8(1), Some(Arch::Arm64));
+        assert_eq!(Arch::from_u8(2), Some(Arch::Ia32));
+        assert_eq!(Arch::from_u8(3), Some(Arch::Arm));
+        assert_eq!(Arch::from_u8(9), None);
+        assert_eq!(Libc::from_u8(0), Some(Libc::Glibc));
+        assert_eq!(Libc::from_u8(1), Some(Libc::Musl));
+        assert_eq!(Libc::from_u8(255), Some(Libc::Na));
+        assert_eq!(Libc::from_u8(9), None);
+    }
+
+    #[test]
+    fn decode_rejects_zero_and_oversized_sizes() {
+        // Magic present, all-zero header → the size gate (not the magic gate) rejects it,
+        // and the inspector reports it unverified (zero compressed size, no payload).
+        let mut s = MAGIC_MARKER.to_vec();
+        s.extend(std::iter::repeat_n(0u8, HEADER_LEN - MAGIC_MARKER.len()));
+        assert_eq!(s.len(), HEADER_LEN);
+        assert!(decode_pressed_data(&s).is_none());
+        let info = read_section_info(&s).expect("the header still parses");
+        assert!(!info.integrity_verified);
+    }
+
+    #[test]
+    fn decode_rejects_a_truncated_payload() {
+        // A header claiming a 100-byte payload with NO payload bytes present → the payload
+        // slice is out of range, so both the decoder and the inspector reject it.
+        let mut s = MAGIC_MARKER.to_vec();
+        s.extend_from_slice(&100u64.to_le_bytes()); // compressed_size
+        s.extend_from_slice(&100u64.to_le_bytes()); // uncompressed_size
+        s.extend_from_slice(&[0u8; CACHE_KEY_LEN]);
+        s.extend_from_slice(&[0u8, 1u8, 255u8]); // platform bytes
+        s.extend_from_slice(&[0u8; INTEGRITY_HASH_LEN]);
+        s.push(0); // has_config
+        assert_eq!(s.len(), HEADER_LEN);
+        assert!(decode_pressed_data(&s).is_none());
+        assert!(!read_section_info(&s).unwrap().integrity_verified);
     }
 }

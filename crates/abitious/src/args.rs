@@ -1,10 +1,11 @@
 //! Hand-rolled argument parsing for the `abi` CLI (no clap — dep budget).
 //!
-//! The one subcommand is `build`:
+//! Two subcommands:
 //!
 //! ```text
-//! abi build [--compress] [--compress-level N] [--release]
-//!           [--stub <path>] [-p <package>] [--out <path>]
+//! abi build   [--compress] [--compress-level N] [--release]
+//!             [--stub <path>] [-p <package>] [--out <path>]
+//! abi inspect <file.node> [--decompress] [--json] [-o <path>]
 //! ```
 //!
 //! [`parse`] is a pure transform from an argument iterator to a [`Command`], so every flag
@@ -22,8 +23,23 @@ use abitious_producer::DEFAULT_LEVEL;
 pub enum Command {
     /// `abi build …` with its resolved options.
     Build(BuildArgs),
+    /// `abi inspect …` with its resolved options.
+    Inspect(InspectArgs),
     /// `-h` / `--help` (or `abi` with no subcommand): print usage and exit 0.
     Help,
+}
+
+/// The options for `abi inspect`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InspectArgs {
+    /// The `.node` file to inspect (hybrid or plain).
+    pub file: PathBuf,
+    /// Extract the raw addon out of the pressed-data section (via `unwrap_if_hybrid`).
+    pub decompress: bool,
+    /// Where `--decompress` writes the raw addon; `None` = stdout.
+    pub out: Option<PathBuf>,
+    /// Emit a machine-readable JSON report instead of the human report.
+    pub json: bool,
 }
 
 /// The options for `abi build`.
@@ -59,7 +75,8 @@ impl Default for BuildArgs {
 
 /// The `abi` usage banner (the `Where:` line of every arg error, and `--help` output).
 pub const USAGE: &str = "abi build [--compress] [--compress-level N] [--release] \
-                         [--stub <path>] [-p <package>] [--out <path>]";
+                         [--stub <path>] [-p <package>] [--out <path>]\n       \
+                         abi inspect <file.node> [--decompress] [--json] [-o <path>]";
 
 /// Parse `argv` (the arguments AFTER the program name) into a [`Command`]. Returns a LOUD
 /// What / Where / Fix error string on any malformed invocation.
@@ -70,15 +87,17 @@ pub fn parse<I: IntoIterator<Item = String>>(argv: I) -> Result<Command, String>
         None => return Ok(Command::Help),
     };
     match sub.as_str() {
-        "-h" | "--help" => return Ok(Command::Help),
-        "build" => {}
-        other => {
-            return Err(usage(&format!(
-                "unknown subcommand {other:?} (expected `build`)"
-            )));
-        }
+        "-h" | "--help" => Ok(Command::Help),
+        "build" => parse_build(it),
+        "inspect" => parse_inspect(it),
+        other => Err(usage(&format!(
+            "unknown subcommand {other:?} (expected `build` or `inspect`)"
+        ))),
     }
+}
 
+/// Parse the arguments after `abi build` into a [`Command::Build`].
+fn parse_build<I: Iterator<Item = String>>(mut it: I) -> Result<Command, String> {
     let mut args = BuildArgs::default();
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -121,6 +140,45 @@ pub fn parse<I: IntoIterator<Item = String>>(argv: I) -> Result<Command, String>
     Ok(Command::Build(args))
 }
 
+/// Parse the arguments after `abi inspect` into a [`Command::Inspect`]. Exactly one
+/// positional `<file.node>` is required; `--decompress`/`-d`, `--json`, and `-o`/`--out`
+/// are optional flags.
+fn parse_inspect<I: Iterator<Item = String>>(mut it: I) -> Result<Command, String> {
+    let mut file: Option<PathBuf> = None;
+    let mut decompress = false;
+    let mut out: Option<PathBuf> = None;
+    let mut json = false;
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--decompress" | "-d" => decompress = true,
+            "--json" => json = true,
+            "--out" | "-o" => {
+                let value = it
+                    .next()
+                    .ok_or_else(|| usage(&format!("{arg} needs a value")))?;
+                out = Some(PathBuf::from(value));
+            }
+            "-h" | "--help" => return Ok(Command::Help),
+            other if other.starts_with('-') && other != "-" => {
+                return Err(usage(&format!("unexpected argument {other:?}")));
+            }
+            _ => {
+                if file.is_some() {
+                    return Err(usage(&format!("unexpected extra path {arg:?}")));
+                }
+                file = Some(PathBuf::from(arg));
+            }
+        }
+    }
+    let file = file.ok_or_else(|| usage("inspect needs a <file.node> path"))?;
+    Ok(Command::Inspect(InspectArgs {
+        file,
+        decompress,
+        out,
+        json,
+    }))
+}
+
 /// A LOUD `What / Where / Fix` argument error anchored on the usage banner.
 fn usage(detail: &str) -> String {
     format!(
@@ -132,6 +190,7 @@ fn usage(detail: &str) -> String {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 
@@ -254,5 +313,63 @@ mod tests {
             build(&["build", "--compress-level", "-5"]).compress_level,
             -5
         );
+    }
+
+    fn inspect(parts: &[&str]) -> InspectArgs {
+        match parse(args(parts)) {
+            Ok(Command::Inspect(i)) => i,
+            other => panic!("expected Inspect, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn inspect_requires_a_file() {
+        let err = parse(args(&["inspect"])).unwrap_err();
+        assert!(err.contains("needs a <file.node>"), "{err}");
+    }
+
+    #[test]
+    fn inspect_parses_the_file_and_flags() {
+        let i = inspect(&["inspect", "hybrid.node"]);
+        assert_eq!(i.file, PathBuf::from("hybrid.node"));
+        assert!(!i.decompress && !i.json && i.out.is_none());
+
+        let full = inspect(&[
+            "inspect",
+            "--decompress",
+            "--json",
+            "-o",
+            "raw.node",
+            "hybrid.node",
+        ]);
+        assert!(full.decompress && full.json);
+        assert_eq!(full.out, Some(PathBuf::from("raw.node")));
+        assert_eq!(full.file, PathBuf::from("hybrid.node"));
+
+        // `-d` is the short alias for `--decompress`; the path can precede the flags.
+        let short = inspect(&["inspect", "hybrid.node", "-d"]);
+        assert!(short.decompress);
+        assert_eq!(short.file, PathBuf::from("hybrid.node"));
+    }
+
+    #[test]
+    fn inspect_rejects_extra_paths_unknown_flags_and_missing_values() {
+        assert!(parse(args(&["inspect", "a.node", "b.node"]))
+            .unwrap_err()
+            .contains("unexpected extra path"));
+        assert!(parse(args(&["inspect", "--nope", "a.node"]))
+            .unwrap_err()
+            .contains("unexpected argument"));
+        assert!(parse(args(&["inspect", "a.node", "-o"])).is_err());
+    }
+
+    #[test]
+    fn inspect_help_flag_returns_help() {
+        assert_eq!(parse(args(&["inspect", "--help"])).unwrap(), Command::Help);
+    }
+
+    #[test]
+    fn usage_names_both_subcommands() {
+        assert!(USAGE.contains("abi build") && USAGE.contains("abi inspect"));
     }
 }

@@ -105,18 +105,25 @@ jobs:
         if: ${{ matrix.libc == 'musl' }}
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: build the generic stub cdylib + the host abi producer
+        env:
+          RUST_TARGET: ${{ matrix.rust }}
         run: |
           set -euo pipefail
-          cargo build -p abitious-stub --release --target "${{ matrix.rust }}"
-          cargo build -p abitious --release --target "${{ matrix.rust }}"
+          cargo build -p abitious-stub --release --target "$RUST_TARGET"
+          cargo build -p abitious --release --target "$RUST_TARGET"
       - name: stage the @abitious/${{ matrix.triple }} package
+        env:
+          TRIPLE: ${{ matrix.triple }}
+          RUST_TARGET: ${{ matrix.rust }}
+          STUB_ARTIFACT: ${{ matrix.stubArtifact }}
+          BIN: ${{ matrix.bin }}
         run: |
           set -euo pipefail
           node scripts/gen-packages.mts
-          dest="npm/${{ matrix.triple }}"
-          out="target/${{ matrix.rust }}/release"
-          cp "${out}/${{ matrix.stubArtifact }}" "${dest}/stub.node"
-          cp "${out}/${{ matrix.bin }}" "${dest}/${{ matrix.bin }}"
+          dest="npm/${TRIPLE}"
+          out="target/${RUST_TARGET}/release"
+          cp "${out}/${STUB_ARTIFACT}" "${dest}/stub.node"
+          cp "${out}/${BIN}" "${dest}/${BIN}"
           ls -la "${dest}"
       # Artifact name is the bare triple so the publish job's download (path: npm)
       # lands each package at npm/<triple>/.
