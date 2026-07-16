@@ -23,6 +23,14 @@ categories = ["compression", "development-tools"]
 default = []
 resign = ["dep:apple-codesign"]
 
+[lints.rust]
+# `coverage` / `coverage_nightly` are set by cargo-llvm-cov (nightly) to gate the
+# `#[coverage(off)]` test-module markers; declare them so stable builds don't warn.
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(coverage)',
+    'cfg(coverage_nightly)',
+] }
+
 [dependencies]
 sha2 = { workspace = true }
 zstd = { workspace = true }

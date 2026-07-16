@@ -60,4 +60,36 @@ section format is the frozen compatibility contract.
   matrix and auto `@abitious/<triple>` stub resolution are later milestones). Hand-rolled
   arg parsing + `cargo metadata` JSON reader (no clap, no serde_json); no JS fallback;
   LOUD What/Where/Saw/Fix errors.
+- **`abitious-decmpfs` fscompress engine** — a byte-faithful port of the `decmpfs`
+  crate's transparent filesystem-compression engine into `abitious-decmpfs`, so a
+  decmpfs-aware package manager depends on ONE crate for both the distribution SECTION
+  format and install-time kernel compression. New `fscompress` module with the OS
+  backends (macOS APFS decmpfs via the system `libcompression` LZVN codec + resource
+  fork; Linux btrfs `FS_COMPR_FL` + the `btrfs.compression` property; Windows NTFS
+  `FSCTL_SET_COMPRESSION`; an `Unsupported` fallback elsewhere), the success/skip
+  taxonomy (`Outcome`, `UnsupportedReason`, `SkipReason`, `Support`, `Error`, `Stat`),
+  the install-time entry points (`compress_bytes` one-pass writer, `compress_file`,
+  `probe`, `stat`), the `Gate` selection surface (`Gate`, `GateParseError`,
+  `SizePredicate`, `DEFAULT_GLOB`), and the apply→verify→rollback safety contract
+  (kernel-roundtrip read-back oracle; every `Outcome` is a success, `Err` only on a
+  genuine I/O fault that leaves integrity unknown). The PM-facing surface is
+  re-exported at the crate root to mirror `decmpfs::` 1:1, so those PMs
+  (pnpm-pacquet `PACQUET_COMPRESS_STORE`, bun, aube, zpm) can swap the dependency
+  drop-in. No new dependencies: the macOS codec is `#[link(name = "compression")]` (a
+  system framework, not a crate) and the syscalls use the already-present
+  `libc`/`windows-sys`.
+- **`abitious-decmpfs` `install_hybrid`** — the abitious install bridge:
+  `install_hybrid(input, dest, gate) -> Result<Outcome, Error>` recovers a downloaded
+  hybrid's raw addon from its pressed-data SECTION (`unwrap_if_hybrid`), else takes a
+  plain addon as-is, and lands it at `dest` via `compress_bytes` — a kernel-compressed,
+  read-back-verified, fail-soft store entry written in ONE pass. This is exactly a
+  decmpfs-aware PM's content-addressed store write: the installed `.node` is
+  transparently compressed on disk yet `dlopen`s at near-native speed (the kernel
+  decompresses on read). Validated end-to-end on APFS
+  (`crates/abitious-producer/tests/install_e2e.rs`): a real produced hybrid installs to
+  a store entry whose on-disk allocation strictly shrinks and which `node
+  process.dlopen` loads with the addon's `napi_register_module_v1` running.
+- **out of scope (M5)** — the reflink `copy_file` / `try_clone_file` / `CopyOutcome`
+  and `rm` / `RmOptions` surfaces of `decmpfs` are intentionally NOT ported; they are
+  PM-link-step / CLI features outside the abitious install-compress path.
 - **`docs`** — the pressed-data section format specification.

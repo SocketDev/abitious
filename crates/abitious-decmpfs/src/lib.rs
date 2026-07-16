@@ -25,13 +25,69 @@
 //! format is **frozen** — see `docs/PRESSED-DATA-FORMAT.md`. abitious is the
 //! producer half decmpfs never had (`build_section_payload`) plus a byte-faithful
 //! copy of the reader so both live in one crate.
+//!
+//! ## The FS-compression engine (`fscompress`)
+//!
+//! Alongside the section reader/writer, this crate ports the `decmpfs` crate's
+//! transparent filesystem-compression engine (macOS APFS decmpfs, Linux btrfs,
+//! Windows NTFS). Its PM-facing surface is re-exported at the crate root and mirrors
+//! `decmpfs::` 1:1 ([`compress_bytes`], [`compress_file`], [`probe`], [`stat`],
+//! [`Outcome`], [`Gate`], …), so a decmpfs-aware package manager can depend on this
+//! single crate for BOTH the distribution SECTION format AND install-time kernel
+//! compression. [`install_hybrid`] is the abitious install bridge that ties the two
+//! halves together: unwrap a downloaded hybrid's raw addon and land it as a
+//! kernel-compressed store entry in one pass.
+
+// The deny keeps non-test code free of the obvious panic sources; all slice indexing
+// in the section reader is already length-guarded, and the fscompress engine is
+// panic-free by contract. `build_section_payload` carries a single justified
+// `#[allow]` for its infallible in-memory zstd encode.
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
+// On a nightly `cargo llvm-cov` run, cargo-llvm-cov sets `coverage_nightly`,
+// enabling `#[coverage(off)]` so test-only code is dropped from the report and it
+// reflects PRODUCTION coverage. A no-op on stable (the cfg is unset), so ordinary
+// builds and `cargo test` are unaffected.
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
 mod inject;
 pub mod selfextract;
 
+pub mod fscompress;
+
 pub use inject::{inject_elf, inject_macho, inject_pe, inject_pressed_data, resign, InjectError};
 
+// The FS-compression engine's PM-facing surface, re-exported at the crate root to
+// mirror `decmpfs::` 1:1 so a decmpfs-aware package manager can swap the dependency.
+pub use fscompress::{
+    compress_bytes, compress_file, probe, stat, Error, Gate, GateParseError, Outcome,
+    SizePredicate, SkipReason, Stat, Support, UnsupportedReason, DEFAULT_GLOB,
+};
+
+use std::path::Path;
+
 use sha2::{Digest, Sha256, Sha512};
+
+/// Install a (possibly hybrid) `.node` into the store as an OS-transparently-compressed
+/// file in one pass — THE decmpfs-aware package-manager install path.
+///
+/// If `input` is an abitious hybrid, its raw addon is recovered from the pressed-data
+/// SECTION ([`unwrap_if_hybrid`]) first; a plain addon (not a hybrid) is written as-is.
+/// The raw addon bytes are then written to `dest` via [`compress_bytes`]
+/// (kernel-compressed, kernel-roundtrip verified, fail-soft to a plain atomic write on
+/// any unsupported FS / permission / integrity issue). Returns the resulting
+/// [`Outcome`].
+///
+/// This is exactly what a PM's content-addressed store writer does: it downloaded the
+/// published hybrid and lands a kernel-compressed, natively-loadable store entry that
+/// `dlopen` reads at near-native speed (the kernel decompresses transparently). The
+/// `gate` gates the write as a convenience; a caller that already selected the file can
+/// pass [`Gate::any()`](fscompress::Gate::any).
+pub fn install_hybrid(input: &[u8], dest: &Path, gate: &Gate) -> Result<Outcome, Error> {
+    match unwrap_if_hybrid(input) {
+        Some(raw) => compress_bytes(dest, &raw, gate),
+        None => compress_bytes(dest, input, gate),
+    }
+}
 
 /// "__SMOL_PRESSED_DATA_MAGIC_MARKER" — the 32-byte section-start marker.
 pub const MAGIC_MARKER: &[u8; 32] = b"__SMOL_PRESSED_DATA_MAGIC_MARKER";
@@ -135,6 +191,9 @@ impl Libc {
 ///
 /// zstd in-memory encoding of an in-memory slice is infallible; a codec failure
 /// here is a programmer error, so it panics rather than returning `Result`.
+// zstd in-memory encoding of an in-memory slice is infallible; the deny on
+// expect_used is waived here for that single justified, documented panic.
+#[allow(clippy::expect_used)]
 pub fn build_section_payload(
     raw: &[u8],
     platform: Platform,
@@ -551,5 +610,103 @@ mod tests {
         assert!(name_eq(b"SMOL\0\0\0\0\0\0\0\0\0\0\0\0", b"SMOL"));
         assert!(!name_eq(b"SMOLX\0\0\0\0\0\0\0\0\0\0\0", b"SMOL"));
         assert!(!name_eq(b"SMO\0", b"SMOL"));
+    }
+
+    /// A synthetic ELF64 that carries `raw` in a `.PRESSED_DATA` section, so
+    /// `unwrap_if_hybrid` recovers `raw` — a self-contained hybrid fixture for the
+    /// install-bridge tests (no producer crate, no `cc`). Mirrors the section layout
+    /// exercised by `finds_pressed_data_in_a_synthetic_elf`.
+    fn synth_elf_hybrid(raw: &[u8]) -> Vec<u8> {
+        let blob = build_section_payload(raw, Platform::Linux, Arch::X64, Libc::Glibc, 16);
+        let shentsize = 64usize;
+        let mut strtab = vec![0u8];
+        let shstrtab_name = strtab.len() as u32;
+        strtab.extend_from_slice(b".shstrtab\0");
+        let pressed_name = strtab.len() as u32;
+        strtab.extend_from_slice(b".PRESSED_DATA\0");
+        let strtab_off = 64usize;
+        let shoff = strtab_off + strtab.len();
+        let blob_off = shoff + 2 * shentsize;
+        let mut bin = vec![0u8; blob_off];
+        bin[0..4].copy_from_slice(&[0x7f, b'E', b'L', b'F']);
+        bin[4] = 2;
+        bin[40..48].copy_from_slice(&(shoff as u64).to_le_bytes());
+        bin[58..60].copy_from_slice(&(shentsize as u16).to_le_bytes());
+        bin[60..62].copy_from_slice(&2u16.to_le_bytes());
+        bin[62..64].copy_from_slice(&0u16.to_le_bytes());
+        bin[strtab_off..strtab_off + strtab.len()].copy_from_slice(&strtab);
+        let sh0 = shoff;
+        bin[sh0..sh0 + 4].copy_from_slice(&shstrtab_name.to_le_bytes());
+        bin[sh0 + 24..sh0 + 32].copy_from_slice(&(strtab_off as u64).to_le_bytes());
+        bin[sh0 + 32..sh0 + 40].copy_from_slice(&(strtab.len() as u64).to_le_bytes());
+        let sh1 = shoff + shentsize;
+        bin[sh1..sh1 + 4].copy_from_slice(&pressed_name.to_le_bytes());
+        bin[sh1 + 24..sh1 + 32].copy_from_slice(&(blob_off as u64).to_le_bytes());
+        bin[sh1 + 32..sh1 + 40].copy_from_slice(&(blob.len() as u64).to_le_bytes());
+        bin.extend_from_slice(&blob);
+        bin
+    }
+
+    fn install_scratch(tag: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("abitious-install-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_file(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    // install_hybrid on a hybrid: recover the raw addon from the section and land it
+    // as a (kernel-compressed, verified) store file. The store bytes must equal the
+    // raw addon (the kernel decompresses transparently on read).
+    #[test]
+    fn install_hybrid_unwraps_the_section_and_lands_the_raw_addon() {
+        let dir = install_scratch("hybrid");
+        let raw = b"\x7fELF the real abitious addon .text payload, compressible. ".repeat(400);
+        let hybrid = synth_elf_hybrid(&raw);
+        // Sanity: the fixture really is a hybrid.
+        assert_eq!(unwrap_if_hybrid(&hybrid).as_deref(), Some(raw.as_slice()));
+
+        let dest = dir.join("addon.node");
+        let out = install_hybrid(&hybrid, &dest, &Gate::any()).expect("install never errors");
+        assert!(
+            matches!(
+                out,
+                Outcome::Compressed { .. } | Outcome::NoGain { .. } | Outcome::Unsupported { .. }
+            ),
+            "got {out:?}"
+        );
+        assert!(dest.exists(), "the store file was created");
+        assert_eq!(
+            std::fs::read(&dest).unwrap(),
+            raw,
+            "the store file is the raw addon, read back byte-for-byte"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // install_hybrid on a plain (non-hybrid) addon: `unwrap_if_hybrid` returns None,
+    // so the input is written as-is (still kernel-compressed where supported).
+    #[test]
+    fn install_hybrid_writes_a_plain_addon_as_is() {
+        let dir = install_scratch("plain");
+        // Not a hybrid: no recognized object magic → unwrap_if_hybrid returns None.
+        let raw = b"a plain raw addon with no PRESSED_DATA section here. ".repeat(400);
+        assert!(unwrap_if_hybrid(&raw).is_none(), "fixture is not a hybrid");
+
+        let dest = dir.join("addon.node");
+        let out = install_hybrid(&raw, &dest, &Gate::any()).expect("install never errors");
+        assert!(
+            matches!(
+                out,
+                Outcome::Compressed { .. } | Outcome::NoGain { .. } | Outcome::Unsupported { .. }
+            ),
+            "got {out:?}"
+        );
+        assert_eq!(
+            std::fs::read(&dest).unwrap(),
+            raw,
+            "plain addon landed as-is"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
