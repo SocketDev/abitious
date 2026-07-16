@@ -1,0 +1,10 @@
+# musl targets build the generic stub as a `cdylib` (the `.node` trampoline). A
+# fully static-CRT musl target CANNOT produce a cdylib ("does not support these
+# crate types"), so build the musl targets DYNAMICALLY (`-crt-static=false`) — the
+# resulting dynamic musl `.node` is what Alpine's musl-linked Node `dlopen`s. Only
+# the musl targets get this; gnu/darwin/msvc are unaffected (target-scoped).
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=-crt-static"]
+
+[target.aarch64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=-crt-static"]
