@@ -80,21 +80,23 @@ fn decompress(args: &InspectArgs, bytes: &[u8]) -> Result<(), String> {
             eprintln!("abi: extracted {} bytes -> {}", raw.len(), out.display());
             Ok(())
         }
-        None => {
-            let mut stdout = std::io::stdout().lock();
-            stdout
-                .write_all(&raw)
-                .and_then(|()| stdout.flush())
-                .map_err(|e| {
-                    fail(
-                        "cannot write the extracted addon to stdout",
-                        "<stdout>",
-                        &e.to_string(),
-                        "redirect stdout to a file, or pass -o <path>.",
-                    )
-                })
-        }
+        None => write_extracted(&mut std::io::stdout().lock(), &raw),
     }
+}
+
+/// Stream the extracted addon bytes to `out` (the process stdout in production), mapping any
+/// I/O failure to a LOUD What/Where/Saw/Fix error. Split out behind a `Write` seam so the
+/// write-failure arm is unit-testable with a fake failing writer — reaching it against the
+/// real stdout would require closing fd 1 out from under the test harness.
+fn write_extracted<W: Write>(out: &mut W, raw: &[u8]) -> Result<(), String> {
+    out.write_all(raw).and_then(|()| out.flush()).map_err(|e| {
+        fail(
+            "cannot write the extracted addon to stdout",
+            "<stdout>",
+            &e.to_string(),
+            "redirect stdout to a file, or pass -o <path>.",
+        )
+    })
 }
 
 /// The human-readable report for a hybrid `.node`.
@@ -349,6 +351,33 @@ mod tests {
                 && j.contains("\"libc\":null"),
             "{j}"
         );
+    }
+
+    #[test]
+    fn write_extracted_maps_a_stdout_write_failure_to_a_loud_error() {
+        // A writer that always fails drives the stdout write-failure arm of `decompress`
+        // (unreachable against a real stdout in a test without closing fd 1). The success
+        // path through the same seam is exercised here (a Vec sink) and by the
+        // `inspect_decompress_round_trips_to_the_raw_addon` CLI test (real stdout).
+        struct FailingWriter;
+        impl std::io::Write for FailingWriter {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let err = write_extracted(&mut FailingWriter, b"addon bytes").unwrap_err();
+        assert!(
+            err.contains("cannot write the extracted addon to stdout"),
+            "{err}"
+        );
+        assert!(err.contains("<stdout>") && err.contains("Fix:"), "{err}");
+
+        let mut sink = Vec::new();
+        write_extracted(&mut sink, b"ok bytes").unwrap();
+        assert_eq!(sink, b"ok bytes");
     }
 
     #[test]

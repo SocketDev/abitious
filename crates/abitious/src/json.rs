@@ -397,6 +397,16 @@ mod tests {
         assert_eq!(parse(r#""\uD800""#).unwrap().as_str(), Some("\u{FFFD}"));
         // A high surrogate followed by a NON-low-surrogate \u escape → U+FFFD then that char.
         assert_eq!(parse(r#""\uD800A""#).unwrap().as_str(), Some("\u{FFFD}A"));
+        // A high surrogate immediately followed by a `\u` escape that PARSES but is NOT a low
+        // surrogate (here a second high surrogate, U+D800): the inner low-surrogate range
+        // check is false, so the pair fails and collapses to U+FFFD (the second `\u` escape
+        // is consumed as the attempted low half). This is the only input that drives the
+        // false-branch of the low-surrogate range test — reached only when the `\u` low half
+        // parses yet falls outside 0xDC00..=0xDFFF.
+        assert_eq!(
+            parse(r#""\uD800\uD800""#).unwrap().as_str(),
+            Some("\u{FFFD}")
+        );
         // A high surrogate followed by a non-escape byte → U+FFFD, then the byte copied.
         assert_eq!(parse(r#""\uD800Z""#).unwrap().as_str(), Some("\u{FFFD}Z"));
     }

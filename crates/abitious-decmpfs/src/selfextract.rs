@@ -389,6 +389,24 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn prepare_cache_dir_fails_soft_when_the_grandparent_cannot_be_created() {
+        // The cache grandparent (the OS tmpdir) is normally already there, so the
+        // `create_dir_all(grandparent).ok()?` early-return is only taken when materializing
+        // it fails. Force that by routing the path so the grandparent must be created
+        // THROUGH a regular file: create_dir_all then hits ENOTDIR and the function fails
+        // soft (None) at that step, instead of panicking.
+        let dir = scratch_dir("prep-grandparent-file");
+        let file = dir.join("a-file");
+        std::fs::write(&file, b"x").unwrap();
+        // path=<file>/a/b/c ⇒ parent=<file>/a/b, grandparent=<file>/a. Creating <file>/a
+        // must traverse the regular file <file> → create_dir_all errors (ENOTDIR).
+        let cache_leaf = file.join("a").join("b").join("c");
+        assert!(prepare_cache_dir(&cache_leaf).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn write_atomic_fails_soft_when_the_rename_target_is_a_directory() {
         // The temp create + write succeed, but renaming a file over an existing directory

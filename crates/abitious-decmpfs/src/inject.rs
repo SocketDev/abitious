@@ -884,6 +884,28 @@ mod tests {
     }
 
     #[test]
+    fn read_layout_rejects_a_macho_with_no_mapped_section() {
+        // A Mach-O carrying only a __LINKEDIT segment with zero sections: read_layout finds
+        // the __LINKEDIT anchor but never lowers first_section_offset from u64::MAX, so it
+        // must reject ("no mapped section to bound the header slack") rather than splice past
+        // a phantom section — the post-loop guard that keeps the header-slack ceiling sound.
+        let le = MACH_HEADER_64_SIZE; // the sole load command
+        let end = le + SEGMENT_COMMAND_64_SIZE;
+        let mut m = vec![0u8; end];
+        put_u32(&mut m, 0, MH_MAGIC_64);
+        put_u32(&mut m, 4, CPU_TYPE_ARM64);
+        put_u32(&mut m, 16, 1); // ncmds = 1
+        put_u32(&mut m, le, LC_SEGMENT_64);
+        put_u32(&mut m, le + 4, SEGMENT_COMMAND_64_SIZE as u32); // cmdsize = 72
+        m[le + 8..le + 18].copy_from_slice(b"__LINKEDIT");
+        put_u64(&mut m, le + 40, end as u64); // fileoff
+        put_u32(&mut m, le + 64, 0); // nsects = 0 → no section file offset is ever tracked
+        let err = splice_macho_segment(&m, b"x").unwrap_err();
+        assert!(matches!(err, InjectError::Malformed(_)), "{err:?}");
+        assert!(err.to_string().contains("no mapped section"), "{err}");
+    }
+
+    #[test]
     fn splice_rejects_out_of_order_layouts_without_panicking() {
         // Two corrupt layouts that would underflow a bare subtraction / panic a bare slice
         // in release (overflow-checks off): both must be Malformed errors, never a panic.

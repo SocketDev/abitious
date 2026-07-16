@@ -394,6 +394,32 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    #[test]
+    fn restore_uses_the_default_temp_name_when_the_path_has_no_file_name() {
+        // A path whose final component is `..` has no `file_name()`, so the temp-name builder
+        // takes its `"addon"` fallback (the `map_or_else` default arm). restore still reaches
+        // the write+rename; renaming a real file over `..` then fails, so it returns Err —
+        // but the fallback-name branch is exercised without a real corrupted addon.
+        let dir = std::env::temp_dir().join(format!(
+            "abitious-fscompress-restore-noname-{}",
+            std::process::id()
+        ));
+        let sub = dir.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        // `<dir>/sub/..` — file_name() is None; parent() is `<dir>/sub` (exists).
+        let no_name = sub.join("..");
+        assert!(
+            no_name.file_name().is_none(),
+            "sanity: `..` has no file_name"
+        );
+        let out = restore(&no_name, b"bytes to roll back");
+        assert!(
+            out.is_err(),
+            "rename onto `..` must fail after the fallback name"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     // A target whose parent directory does not exist: the backend's temp create
     // fails with ENOENT — not a permission/busy/too-large skip — so the guarded
     // one-pass write propagates it as a hard Err rather than swallowing it.

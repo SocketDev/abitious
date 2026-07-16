@@ -4,6 +4,7 @@
   "description": "Workspace root for the abitious npm distribution (@abitious/cli + per-triple platform packages). The crates are the Cargo workspace; this drives codegen, typecheck, and the JS tests.",
   "license": "MIT",
   "scripts": {
+    "coverage": "node scripts/coverage.mts",
     "gen": "node scripts/gen-packages.mts",
     "gen:check": "node scripts/gen-packages.mts --check",
     "test": "node --test 'npm/cli/test/**/*.test.mjs'",

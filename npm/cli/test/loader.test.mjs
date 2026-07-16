@@ -10,7 +10,7 @@ import { test } from 'node:test'
 
 const require = createRequire(import.meta.url)
 const loader = require('../loader.cjs')
-const { abiSuffix, hostTriple, resolvePlatform, SUPPORTED } = loader
+const { abiSuffix, hostTriple, loadPlatform, resolvePlatform, SUPPORTED } = loader
 
 // A glibc host reports a runtime version; a musl host does not.
 const GLIBC = { header: { glibcVersionRuntime: '2.39' } }
@@ -111,4 +111,27 @@ test('resolvePlatform rejects an unsupported host, listing what is supported', (
       return true
     },
   )
+})
+
+test('loadPlatform wires the real process (process.report) + require.resolve', () => {
+  // The production entry: it reads process.report.getReport() (the glibc-detection wiring on
+  // Linux) and require.resolve()s THIS host's @abitious package. The optional dep is not
+  // installed in this workspace, so it throws the actionable error — but only after the
+  // report wiring + host-triple computation have run. If a host dep ever is present, it
+  // returns coherent paths instead; assert whichever outcome occurs.
+  const hostReport =
+    typeof process.report?.getReport === 'function' ? process.report.getReport() : undefined
+  const expected = hostTriple({
+    platform: process.platform,
+    arch: process.arch,
+    report: hostReport,
+  })
+  try {
+    const res = loadPlatform()
+    assert.equal(res.triple, expected)
+    assert.equal(res.pkg, `@abitious/${expected}`)
+    assert.ok(res.bin.length > 0 && res.stub.length > 0)
+  } catch (err) {
+    assert.match(err.message, /no prebuilt binary|unsupported platform/)
+  }
 })
