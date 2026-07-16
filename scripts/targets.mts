@@ -29,6 +29,15 @@ export interface Target {
   rust: string
   /** The GitHub Actions runner label to build this target on. */
   runner: string
+  /**
+   * Tier-1 targets build in the CI matrix today (native on their runner, no cross
+   * C toolchain). Tier-2 targets — musl (zstd-sys needs a musl C cross-toolchain)
+   * and Windows (native but pending a green CI validation) — are still generated as
+   * @abitious/<triple> manifests + optionalDependencies, but are EXCLUDED from the
+   * `--print-matrix` CI build set until their toolchains/validation land. Flip a
+   * target to tier-1 once its build is proven green. See docs / the CI follow-up.
+   */
+  tier1?: boolean
 }
 
 // The 8 napi-compress defaults.
@@ -39,6 +48,7 @@ export const TARGETS: Target[] = [
     cpu: 'arm64',
     rust: 'aarch64-apple-darwin',
     runner: 'macos-14',
+    tier1: true,
   },
   {
     triple: 'darwin-x64',
@@ -46,6 +56,7 @@ export const TARGETS: Target[] = [
     cpu: 'x64',
     rust: 'x86_64-apple-darwin',
     runner: 'macos-13',
+    tier1: true,
   },
   {
     triple: 'linux-x64-gnu',
@@ -54,6 +65,7 @@ export const TARGETS: Target[] = [
     libc: 'glibc',
     rust: 'x86_64-unknown-linux-gnu',
     runner: 'ubuntu-latest',
+    tier1: true,
   },
   {
     triple: 'linux-arm64-gnu',
@@ -62,6 +74,7 @@ export const TARGETS: Target[] = [
     libc: 'glibc',
     rust: 'aarch64-unknown-linux-gnu',
     runner: 'ubuntu-24.04-arm',
+    tier1: true,
   },
   {
     triple: 'linux-x64-musl',

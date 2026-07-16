@@ -85,8 +85,8 @@ jobs:
         run: node scripts/gen-packages.mts --check
       - name: node --test (loader-resolution + codegen unit tests)
         run: node --test 'npm/cli/test/**/*.test.mjs'
-      - name: enable pnpm (corepack, bundled with node)
-        run: corepack enable && corepack prepare pnpm@11.10.0 --activate
+      - name: enable pnpm (corepack reads the pinned packageManager)
+        run: corepack enable
       - name: install devDeps
         run: pnpm install --frozen-lockfile
       - name: typecheck (tsc --noEmit)

@@ -89,9 +89,14 @@ function loaderData(): unknown {
   }
 }
 
-/** The CI build matrix `include:` array, derived from TARGETS. */
+/**
+ * The CI build matrix `include:` array, derived from TARGETS. Only tier-1 targets
+ * (native on their runner, no cross C toolchain) build in CI today; tier-2 (musl,
+ * Windows) are still generated as manifests/optionalDependencies but excluded here
+ * until their toolchains/validation land. Flip `tier1` in targets.mts to include one.
+ */
 function matrix(): unknown[] {
-  return TARGETS.map(t => ({
+  return TARGETS.filter(t => t.tier1).map(t => ({
     triple: t.triple,
     os: t.os,
     cpu: t.cpu,

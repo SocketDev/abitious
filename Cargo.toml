@@ -48,10 +48,13 @@ libc = "0.2"
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_System_LibraryLoader",
-    # fscompress/windows.rs (NTFS FSCTL_SET_COMPRESSION) + verify.rs on-disk size:
-    # DeviceIoControl is in System::IO; CreateFileW / GetCompressedFileSizeW + the
-    # FSCTL / COMPRESSION_FORMAT constants are in Storage::FileSystem. cfg(windows)-only,
-    # so this gap only surfaced on the Windows CI leg (never on the macOS dev host).
+    # fscompress/windows.rs (NTFS FSCTL_SET_COMPRESSION) + verify.rs on-disk size.
+    # This mirrors decmpfs's proven set for the same code: DeviceIoControl is in
+    # System::IO; CreateFileW / GetCompressedFileSizeW + the FSCTL / COMPRESSION_FORMAT
+    # constants are in Storage::FileSystem; CreateFileW's SECURITY_ATTRIBUTES param
+    # pulls Security (without it CreateFileW is unresolved). cfg(windows)-only, so the
+    # gap only surfaces on the Windows CI leg (never on the macOS dev host).
+    "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_IO",
 ] }
