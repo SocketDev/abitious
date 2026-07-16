@@ -21,10 +21,31 @@ use abitious_producer::compress_node;
 
 use crate::args::BuildArgs;
 use crate::metadata::{cdylib_artifact_path, cdylib_target_name, node_output_name};
+use crate::resolve::{resolve_stub as resolve_stub_in, stub_not_found_error};
+use crate::triple::host_triple;
+
+/// The stub to inject when compressing: the explicit `--stub` if given, else the prebuilt
+/// stub auto-resolved from an installed `@abitious/<host-triple>` package (walking up from
+/// `cwd`). LOUD-fails naming the exact package when neither is available.
+fn resolve_stub(args: &BuildArgs, cwd: &Path) -> Result<PathBuf, String> {
+    if let Some(stub) = &args.stub {
+        return Ok(stub.clone());
+    }
+    let triple = host_triple();
+    resolve_stub_in(cwd, &triple).ok_or_else(|| stub_not_found_error(&triple, cwd))
+}
 
 /// Run `abi build` in `cwd`. On success returns the line to print (the producer's JSON
 /// receipt when compressing, else a small build receipt); on failure a LOUD error string.
 pub fn run(args: &BuildArgs, cwd: &Path) -> Result<String, String> {
+    // Resolve the stub UP FRONT when compressing — before the expensive cargo build — so a
+    // missing stub fails fast with an actionable message rather than after a full compile.
+    let resolved_stub = if args.compress {
+        Some(resolve_stub(args, cwd)?)
+    } else {
+        None
+    };
+
     let cargo = cargo_bin();
     cargo_build(&cargo, args, cwd)?;
 
@@ -44,11 +65,10 @@ pub fn run(args: &BuildArgs, cwd: &Path) -> Result<String, String> {
     copy_artifact(&artifact, &dest)?;
 
     if args.compress {
-        // Arg parsing guarantees `--stub` is present whenever `--compress` is set.
-        let stub = args
-            .stub
+        // Resolved above (explicit `--stub` or auto-resolved `@abitious/<triple>`).
+        let stub = resolved_stub
             .as_ref()
-            .expect("--compress requires --stub (enforced in args::parse)");
+            .expect("stub resolved above whenever compress is set");
         let receipt =
             compress_node(&dest, stub, &dest, args.compress_level).map_err(|e| e.to_string())?;
         Ok(receipt.to_json())

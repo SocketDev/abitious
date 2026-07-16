@@ -6,11 +6,22 @@
 
 #![allow(clippy::print_stderr)]
 
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn abi(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_abi"))
         .args(args)
+        .output()
+        .expect("run abi")
+}
+
+/// Run `abi` with `cwd` set — used to exercise the stub auto-resolver from an isolated
+/// directory with no `node_modules/@abitious` ancestry.
+fn abi_in(cwd: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_abi"))
+        .args(args)
+        .current_dir(cwd)
         .output()
         .expect("run abi")
 }
@@ -37,11 +48,31 @@ fn unknown_subcommand_fails_loud() {
 }
 
 #[test]
-fn compress_without_stub_fails_loud() {
-    let out = abi(&["build", "--compress"]);
+fn compress_without_stub_auto_resolve_fails_loud_naming_the_package() {
+    // M6: `--compress` with no `--stub` auto-resolves from an installed @abitious/<triple>.
+    // From an isolated temp dir (no node_modules/@abitious ancestry), resolution fails fast —
+    // BEFORE any cargo build — with an actionable error naming the exact package to install.
+    let dir: PathBuf =
+        std::env::temp_dir().join(format!("abitious-cli-noresolve-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("scratch dir");
+
+    let out = abi_in(&dir, &["build", "--compress"]);
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("needs a stub"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("could not auto-resolve a prebuilt stub"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("@abitious/"),
+        "stderr should name the package: {stderr}"
+    );
+    assert!(
+        stderr.contains("--stub"),
+        "stderr should mention the override: {stderr}"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

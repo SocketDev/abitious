@@ -1,0 +1,8 @@
+# abitious npm distribution workspace. The npm packages live under npm/* — NEVER
+# packages/* (the fleet mono-detector flags packages/* as a monorepo; abitious stays
+# repo.type "solo", mirroring how decmpfs uses napi/* + napi/decmpfs/npm/*).
+#
+#   npm/cli         → @abitious/cli (the main package: platform loader + `abi` bin)
+#   npm/<triple>    → @abitious/<triple> (per-platform prebuilt stub + host producer)
+packages:
+  - npm/*

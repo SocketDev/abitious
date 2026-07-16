@@ -54,6 +54,38 @@ fn has_tool(tool: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// The host npm triple, computed the same way `crate::triple::host_triple` does. Duplicated
+/// here (test code cannot reach the bin crate's private modules) but proven equivalent by
+/// `triple::tests::triple_of_matches_targets_mts`; on this host both see the same cfg.
+fn host_triple_for_test() -> String {
+    let os = if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(target_os = "windows") {
+        "win32"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else if cfg!(target_arch = "x86") {
+        "ia32"
+    } else if cfg!(target_arch = "arm") {
+        "arm"
+    } else {
+        "x64"
+    };
+    let abi = if cfg!(target_os = "windows") {
+        "-msvc"
+    } else if cfg!(target_os = "macos") {
+        ""
+    } else if cfg!(target_env = "musl") {
+        "-musl"
+    } else {
+        "-gnu"
+    };
+    format!("{os}-{arch}{abi}")
+}
+
 /// Build the generic stub cdylib and return the `libabitious_stub.dylib` path.
 fn build_stub(root: &Path) -> Option<PathBuf> {
     let status = Command::new(env!("CARGO"))
@@ -229,6 +261,94 @@ fn abi_build_compress_produces_a_self_extracting_hybrid_under_node() {
          (no marker) — the self-extract/forward path did not reach the real addon",
     );
     eprintln!("M4 proof: `abi build --compress` produced a hybrid node dlopened + registered.");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn abi_build_compress_auto_resolves_stub_from_node_modules() {
+    // M6 host-triple end-to-end: `abi build --compress` with NO `--stub` auto-resolves the
+    // prebuilt stub from an installed `@abitious/<host-triple>` package (walking up from cwd),
+    // then produces a hybrid that Node dlopens and whose real addon registers.
+    if !has_tool("cc") {
+        eprintln!("skip: no C compiler (cc) to link the fixture cdylib");
+        return;
+    }
+
+    let dir = std::env::temp_dir().join(format!("abitious-abi-autoresolve-{}", std::process::id()));
+    let fixture = dir.join("fixture");
+    std::fs::create_dir_all(&fixture).expect("scratch dir");
+    let root = repo_root();
+
+    // Build the stub and PLANT it as an installed platform package one level ABOVE the fixture,
+    // exactly as a package manager lays out node_modules/@abitious/<triple>/stub.node — proving
+    // the walk-up resolver, not an explicit path.
+    let Some(stub_dylib) = build_stub(&root) else {
+        eprintln!("skip: could not build abitious-stub (needed for the M6 proof)");
+        std::fs::remove_dir_all(&dir).ok();
+        return;
+    };
+    let triple = host_triple_for_test();
+    let pkg_dir = dir.join("node_modules").join("@abitious").join(&triple);
+    std::fs::create_dir_all(&pkg_dir).expect("platform pkg dir");
+    let planted_stub = pkg_dir.join("stub.node");
+    std::fs::copy(&stub_dylib, &planted_stub).expect("plant stub.node");
+    eprintln!("planted stub at {}", planted_stub.display());
+
+    scaffold_fixture(&fixture);
+
+    // `abi build --release --compress` with NO `--stub` — the resolver must find the planted
+    // platform package by walking up from the fixture cwd.
+    let out = run_abi(&fixture, &["build", "--release", "--compress"]);
+    assert!(
+        out.status.success(),
+        "abi build --compress (auto-resolve) failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let receipt = String::from_utf8_lossy(&out.stdout);
+    eprintln!("abi build receipt (auto-resolved stub): {}", receipt.trim());
+    assert!(
+        receipt.contains("\"cacheKey\":\"") && receipt.contains("\"rawSize\":"),
+        "compress receipt missing expected JSON fields: {receipt}"
+    );
+
+    // Oracle: the produced hybrid is a real self-extracting addon Node can load.
+    let node_path = fixture.join("abi_fixture.node");
+    let hybrid_bytes = std::fs::read(&node_path).expect("read hybrid");
+    assert!(
+        unwrap_if_hybrid(&hybrid_bytes).is_some(),
+        "the auto-resolved --compress output must be a hybrid",
+    );
+
+    if !has_tool("node") {
+        eprintln!("note: `node` not found — skipped the dlopen oracle");
+        std::fs::remove_dir_all(&dir).ok();
+        return;
+    }
+    let marker = dir.join("register-ran.marker");
+    let _ = std::fs::remove_file(&marker);
+    let probe = format!(
+        "process.dlopen({{exports:{{}}}},{:?})",
+        node_path.to_string_lossy()
+    );
+    let node = Command::new("node")
+        .args(["-e", &probe])
+        .env("ABI_E2E_MARKER", &marker)
+        .output()
+        .expect("run node");
+    assert!(
+        node.status.success(),
+        "node dlopen of the auto-resolved hybrid failed:\n{}",
+        String::from_utf8_lossy(&node.stderr)
+    );
+    assert!(
+        marker.exists(),
+        "node loaded the hybrid but the fixture's register did not run (auto-resolve path)",
+    );
+    eprintln!(
+        "M6 proof: `abi build --compress` (no --stub) auto-resolved @abitious/{triple} and \
+         produced a hybrid node dlopened + registered."
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }

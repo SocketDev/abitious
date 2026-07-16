@@ -2,3 +2,11 @@
 **/*.rs.bk
 *.pdb
 .DS_Store
+
+# JS / npm distribution
+node_modules/
+# Per-triple platform-package binaries are populated by CI (or locally for testing);
+# never committed. The package.json + README (codegen'd) are tracked.
+npm/*/stub.node
+npm/*/abi
+npm/*/abi.exe

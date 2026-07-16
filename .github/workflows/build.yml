@@ -1,0 +1,178 @@
+# abitious build + release.
+#
+# The build MATRIX is DERIVED from the single source of truth (scripts/targets.mts) at CI
+# time: the `prepare` job runs `gen-packages --print-matrix` and downstream jobs consume it
+# via `fromJSON`, so adding/removing a target in targets.mts changes the matrix with no edit
+# here (the cross-language coupling is genuine, never a duplicated triple list).
+#
+# Jobs:
+#   • check   — the JS gates + gen-then-check (single-source guard): gen --check, node --test,
+#               and tsc typecheck.
+#   • prepare — emit the matrix JSON from targets.mts.
+#   • build   — per target, cross-build the generic stub cdylib + the host `abi` producer and
+#               package them into the @abitious/<triple> layout; upload as an artifact. Darwin
+#               targets run on macOS runners so the host `abi` producer (which ad-hoc re-signs
+#               injected Mach-O via apple-codesign at `abi build --compress` time) is itself a
+#               macOS build, and the darwin stub links against the macOS SDK.
+#   • release — on a published GitHub Release, gather every platform package, tar each, emit
+#               SHA-256 checksums, and attach them to the release.
+#
+# Every action is pinned to a commit SHA (SocketDev sha_pinning_required), copied from the
+# fleet's canonical pins (decmpfs for the JS actions, envrypt for the Rust actions).
+
+name: build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - "npm/**"
+      - "scripts/**"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - "tsconfig.json"
+      - ".github/workflows/build.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - "npm/**"
+      - "scripts/**"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - "tsconfig.json"
+      - ".github/workflows/build.yml"
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # JS gates + the single-source-of-truth guard. No package install is needed for gen/tests
+  # (pure node builtins); typecheck installs the pinned devDeps via pnpm.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+      - name: gen-packages --check (out-of-sync with targets.mts fails)
+        run: node scripts/gen-packages.mts --check
+      - name: node --test (loader-resolution + codegen unit tests)
+        run: node --test 'npm/cli/test/**/*.test.mjs'
+      - name: enable pnpm (corepack, bundled with node)
+        run: corepack enable && corepack prepare pnpm@11.10.0 --activate
+      - name: install devDeps
+        run: pnpm install --frozen-lockfile
+      - name: typecheck (tsc --noEmit)
+        run: pnpm run typecheck
+
+  # Derive the CI matrix from the single source of truth.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+      - id: gen
+        name: derive matrix from scripts/targets.mts
+        run: |
+          set -euo pipefail
+          matrix="$(node scripts/gen-packages.mts --print-matrix)"
+          echo "matrix={\"include\":${matrix}}" >> "$GITHUB_OUTPUT"
+
+  # Cross-build the stub cdylib + host producer per target and package the @abitious/<triple>.
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+      # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-07-12); keep the
+      # `toolchain:` here in lockstep with it. `targets:` adds the matrix cross target.
+      - uses: dtolnay/rust-toolchain@efcb852328a9f50117170cc43094fb6f09eaf1ae # nightly
+        with:
+          toolchain: nightly-2026-07-12
+          targets: ${{ matrix.rust }}
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: ${{ matrix.triple }}
+      - name: install musl toolchain (musl targets only)
+        if: ${{ matrix.libc == 'musl' }}
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: build the generic stub cdylib + the host abi producer
+        run: |
+          set -euo pipefail
+          cargo build -p abitious-stub --release --target "${{ matrix.rust }}"
+          cargo build -p abitious --release --target "${{ matrix.rust }}"
+      - name: stage the @abitious/${{ matrix.triple }} package
+        run: |
+          set -euo pipefail
+          node scripts/gen-packages.mts
+          dest="npm/${{ matrix.triple }}"
+          out="target/${{ matrix.rust }}/release"
+          cp "${out}/${{ matrix.stubArtifact }}" "${dest}/stub.node"
+          cp "${out}/${{ matrix.bin }}" "${dest}/${{ matrix.bin }}"
+          ls -la "${dest}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: abitious-${{ matrix.triple }}
+          path: npm/${{ matrix.triple }}
+          if-no-files-found: error
+
+  # On a published release, gather every platform package, tar + checksum, attach to the release.
+  release:
+    if: ${{ github.event_name == 'release' }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # upload assets to the GitHub Release
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: abitious-*
+          path: dist
+      - name: tarball each platform package + SHA-256 checksums
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          for d in dist/abitious-*; do
+            [ -d "$d" ] || continue
+            triple="$(basename "$d" | sed 's/^abitious-//')"
+            tar -czf "out/abitious-${triple}.tar.gz" -C "$d" .
+          done
+          (cd out && shasum -a 256 ./*.tar.gz > SHA256SUMS.txt)
+          cat out/SHA256SUMS.txt
+      - name: attach artifacts to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" out/* --clobber

@@ -8,8 +8,10 @@
 //! ```
 //!
 //! [`parse`] is a pure transform from an argument iterator to a [`Command`], so every flag
-//! path — including the M4 rule that `--compress` requires `--stub` and the rejection of a
-//! non-integer `--compress-level` — is covered by unit tests without spawning anything.
+//! path — including the rejection of a non-integer `--compress-level` — is covered by unit
+//! tests without spawning anything. As of M6, `--compress` no longer requires `--stub`: when
+//! `--stub` is omitted the stub is auto-resolved from an installed `@abitious/<triple>`
+//! package at build time ([`crate::resolve`]); `--stub` still overrides.
 
 use std::path::PathBuf;
 
@@ -33,7 +35,8 @@ pub struct BuildArgs {
     pub compress_level: i32,
     /// Build with `--release` (artifact under `target/release`).
     pub release: bool,
-    /// The prebuilt generic stub `.node`; REQUIRED when `--compress` is set (M4).
+    /// The prebuilt generic stub `.node`. Optional: when omitted and `--compress` is set, it
+    /// is auto-resolved from an installed `@abitious/<triple>` package ([`crate::resolve`]).
     pub stub: Option<PathBuf>,
     /// `cargo`/`-p` package to build in a workspace.
     pub package: Option<String>,
@@ -112,16 +115,9 @@ pub fn parse<I: IntoIterator<Item = String>>(argv: I) -> Result<Command, String>
         }
     }
 
-    // M4: compressing needs an explicit stub. Auto `@abitious/<triple>` resolution is M6.
-    if args.compress && args.stub.is_none() {
-        return Err(fail(
-            "`--compress` needs a stub",
-            "auto stub resolution (@abitious/<triple>) is not implemented yet",
-            "pass --stub <path> to the prebuilt stub .node for this host \
-             (e.g. `cargo build -p abitious-stub --release`).",
-        ));
-    }
-
+    // M6: `--compress` no longer requires `--stub` at parse time. When omitted, the stub is
+    // auto-resolved from an installed `@abitious/<triple>` package during `build::run` (which
+    // LOUD-fails there, naming the exact package, if none is found).
     Ok(Command::Build(args))
 }
 
@@ -132,15 +128,6 @@ fn usage(detail: &str) -> String {
          What:  {detail}\n  \
          Where: {USAGE}\n  \
          Fix:   check the flags above."
-    )
-}
-
-/// A LOUD `What / Where / Fix` error for a semantic (not syntactic) problem.
-fn fail(what: &str, where_: &str, fix: &str) -> String {
-    format!(
-        "abi: {what}.\n  \
-         Where: {where_}\n  \
-         Fix:   {fix}"
     )
 }
 
@@ -217,10 +204,12 @@ mod tests {
     }
 
     #[test]
-    fn compress_without_stub_errors() {
-        let err = parse(args(&["build", "--compress"])).unwrap_err();
-        assert!(err.contains("`--compress` needs a stub"));
-        assert!(err.contains("--stub"));
+    fn compress_without_stub_is_allowed_at_parse_time() {
+        // M6: parsing no longer rejects `--compress` without `--stub`; the stub is
+        // auto-resolved (or LOUD-failed) at build time. Parse yields compress=true, stub=None.
+        let b = build(&["build", "--compress"]);
+        assert!(b.compress);
+        assert_eq!(b.stub, None);
     }
 
     #[test]

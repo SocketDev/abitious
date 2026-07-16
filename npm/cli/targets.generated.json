@@ -1,0 +1,58 @@
+{
+  "_generated": "scripts/gen-packages.mts from scripts/targets.mts — do not edit",
+  "stubNode": "stub.node",
+  "targets": [
+    {
+      "triple": "darwin-arm64",
+      "os": "darwin",
+      "cpu": "arm64",
+      "bin": "abi"
+    },
+    {
+      "triple": "darwin-x64",
+      "os": "darwin",
+      "cpu": "x64",
+      "bin": "abi"
+    },
+    {
+      "triple": "linux-x64-gnu",
+      "os": "linux",
+      "cpu": "x64",
+      "libc": "glibc",
+      "bin": "abi"
+    },
+    {
+      "triple": "linux-arm64-gnu",
+      "os": "linux",
+      "cpu": "arm64",
+      "libc": "glibc",
+      "bin": "abi"
+    },
+    {
+      "triple": "linux-x64-musl",
+      "os": "linux",
+      "cpu": "x64",
+      "libc": "musl",
+      "bin": "abi"
+    },
+    {
+      "triple": "linux-arm64-musl",
+      "os": "linux",
+      "cpu": "arm64",
+      "libc": "musl",
+      "bin": "abi"
+    },
+    {
+      "triple": "win32-x64-msvc",
+      "os": "win32",
+      "cpu": "x64",
+      "bin": "abi.exe"
+    },
+    {
+      "triple": "win32-arm64-msvc",
+      "os": "win32",
+      "cpu": "arm64",
+      "bin": "abi.exe"
+    }
+  ]
+}

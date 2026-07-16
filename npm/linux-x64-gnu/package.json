@@ -1,0 +1,29 @@
+{
+  "name": "@abitious/linux-x64-gnu",
+  "version": "0.1.0",
+  "description": "abitious prebuilt stub + host `abi` producer for linux-x64-gnu.",
+  "license": "MIT",
+  "repository": "https://github.com/SocketDev/abitious",
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "libc": [
+    "glibc"
+  ],
+  "files": [
+    "README.md",
+    "abi",
+    "stub.node"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  }
+}

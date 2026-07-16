@@ -17,6 +17,8 @@ mod args;
 mod build;
 mod json;
 mod metadata;
+mod resolve;
+mod triple;
 
 use std::process::ExitCode;
 
