@@ -30,49 +30,134 @@ mod metadata;
 mod resolve;
 mod triple;
 
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::args::Command;
 
 fn main() -> ExitCode {
-    let command = match args::parse(std::env::args().skip(1)) {
-        Ok(command) => command,
+    let cwd = current_working_dir();
+    match run(
+        std::env::args().skip(1),
+        &cwd,
+        &mut std::io::stdout().lock(),
+    ) {
+        Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("{message}");
-            return ExitCode::FAILURE;
+            ExitCode::FAILURE
         }
-    };
+    }
+}
 
-    match command {
+/// Parse `argv` and dispatch to the subcommand, writing success output (usage / the build
+/// receipt) to `out` and returning a LOUD error string on failure. Split from `main` so the
+/// dispatch + error arms are unit-tested in-process without spawning the binary; `main` only
+/// maps the `Result` to a process exit (printing errors to stderr), preserving the exact CLI
+/// behavior + exit codes. `inspect` streams RAW addon bytes and self-prints to stdout, so it
+/// writes there directly rather than through `out`.
+fn run<W: Write>(
+    argv: impl IntoIterator<Item = String>,
+    cwd: &Path,
+    out: &mut W,
+) -> Result<(), String> {
+    match args::parse(argv)? {
         Command::Help => {
-            println!("usage: {}", args::USAGE);
-            ExitCode::SUCCESS
+            let _ = writeln!(out, "usage: {}", args::USAGE);
+            Ok(())
         }
         Command::Build(build_args) => {
-            let cwd = match std::env::current_dir() {
-                Ok(cwd) => cwd,
-                Err(e) => {
-                    eprintln!("abi: cannot determine the current directory.\n  Saw: {e}");
-                    return ExitCode::FAILURE;
-                }
-            };
-            match build::run(&build_args, &cwd) {
-                Ok(receipt) => {
-                    println!("{receipt}");
-                    ExitCode::SUCCESS
-                }
-                Err(message) => {
-                    eprintln!("{message}");
-                    ExitCode::FAILURE
-                }
-            }
+            let receipt = build::run(&build_args, cwd)?;
+            let _ = writeln!(out, "{receipt}");
+            Ok(())
         }
-        Command::Inspect(inspect_args) => match inspect::run(&inspect_args) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(message) => {
-                eprintln!("{message}");
-                ExitCode::FAILURE
-            }
-        },
+        Command::Inspect(inspect_args) => inspect::run(&inspect_args),
+    }
+}
+
+/// The process working directory, or — on the (in-process-unreachable) failure — a LOUD
+/// message to stderr and exit 1. Extracted and `coverage(off)` because `current_dir`
+/// failing has no in-process trigger (a live process always has a cwd), so branching on it
+/// is defensive; keeping it out of `run` leaves `run`'s dispatch fully unit-testable.
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn current_working_dir() -> PathBuf {
+    match std::env::current_dir() {
+        Ok(cwd) => cwd,
+        Err(e) => {
+            eprintln!("abi: cannot determine the current directory.\n  Saw: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::*;
+
+    fn argv(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Run the dispatcher, capturing what it writes to `out` (usage / receipt).
+    fn run_capture(parts: &[&str], cwd: &Path) -> Result<String, String> {
+        let mut out = Vec::<u8>::new();
+        run(argv(parts), cwd, &mut out).map(|()| String::from_utf8(out).expect("utf8"))
+    }
+
+    #[test]
+    fn help_writes_usage_to_the_writer() {
+        let cwd = std::env::temp_dir();
+        assert!(run_capture(&["--help"], &cwd)
+            .unwrap()
+            .contains("usage: abi build"));
+        assert!(run_capture(&["-h"], &cwd)
+            .unwrap()
+            .contains("usage: abi build"));
+        // Bare `abi` (no subcommand) also prints usage.
+        assert!(run_capture(&[], &cwd).unwrap().contains("usage: abi build"));
+    }
+
+    #[test]
+    fn a_parse_error_is_returned_as_a_loud_string() {
+        let err = run_capture(&["frobnicate"], &std::env::temp_dir()).unwrap_err();
+        assert!(err.contains("unknown subcommand"), "{err}");
+    }
+
+    #[test]
+    fn a_build_error_propagates() {
+        // `--compress` with no `--stub`, from an isolated cwd with no node_modules/@abitious
+        // ancestry → build::run's stub resolution fails and run returns the LOUD error.
+        let dir = std::env::temp_dir().join(format!("abi-main-build-err-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let err = run_capture(&["build", "--compress"], &dir).unwrap_err();
+        assert!(
+            err.contains("could not auto-resolve a prebuilt stub"),
+            "{err}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_inspect_error_propagates() {
+        let err = run_capture(
+            &["inspect", "/no/such/abi-main/missing.node"],
+            &std::env::temp_dir(),
+        )
+        .unwrap_err();
+        assert!(err.contains("cannot read the .node file"), "{err}");
+    }
+
+    #[test]
+    fn an_inspect_success_returns_ok() {
+        // A plain .node → inspect::run prints its report to stdout and returns Ok(()); the
+        // dispatcher maps that to Ok (the Inspect arm self-prints, bypassing `out` by design).
+        let dir = std::env::temp_dir().join(format!("abi-main-inspect-ok-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let plain = dir.join("plain.node");
+        std::fs::write(&plain, b"not a hybrid, just bytes").unwrap();
+        assert!(run_capture(&["inspect", plain.to_str().unwrap()], &dir).is_ok());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

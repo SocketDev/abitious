@@ -771,4 +771,211 @@ mod tests {
             Err(InjectError::InsufficientSlack { .. })
         ));
     }
+
+    #[test]
+    fn inject_error_display_and_debug_cover_every_variant() {
+        let cases = [
+            InjectError::UnknownFormat,
+            InjectError::Malformed("bad header".to_string()),
+            InjectError::InsufficientSlack { have: 8, need: 152 },
+            InjectError::Resign("signer blew up".to_string()),
+        ];
+        // Display: each variant renders a distinct, non-empty message naming its cause.
+        assert!(cases[0].to_string().contains("unrecognized binary format"));
+        assert!(cases[1]
+            .to_string()
+            .contains("malformed object file: bad header"));
+        let slack = cases[2].to_string();
+        assert!(slack.contains("insufficient Mach-O header slack") && slack.contains("152"));
+        assert!(cases[3]
+            .to_string()
+            .contains("ad-hoc re-sign failed: signer blew up"));
+        // Debug: mirrors the variant shape (used in test assertions / logs).
+        assert_eq!(format!("{:?}", cases[0]), "UnknownFormat");
+        assert!(format!("{:?}", cases[1]).starts_with("Malformed("));
+        assert!(format!("{:?}", cases[2]).contains("InsufficientSlack"));
+        assert!(format!("{:?}", cases[3]).starts_with("Resign("));
+        // The Error trait is implemented (source is None for all variants).
+        let _: &dyn std::error::Error = &cases[0];
+    }
+
+    #[test]
+    fn round_up_and_align_up_handle_a_zero_alignment() {
+        // A zero alignment is a no-op guard (page_size / file_align are never 0 in a real
+        // object, but the helpers stay total).
+        assert_eq!(round_up(5, 0), 5);
+        assert_eq!(round_up(5, 4), 8);
+        assert_eq!(align_up(5, 0), 5);
+        assert_eq!(align_up(5, 4), 8);
+    }
+
+    #[test]
+    fn inject_macho_rejects_a_big_endian_header() {
+        // A BE Mach-O is recognized by the dispatch magic but rejected by read_layout's
+        // little-endian magic check.
+        let be = [0xfe, 0xed, 0xfa, 0xcf, 0, 0, 0, 0, 0, 0, 0, 0];
+        let err = inject_pressed_data(&be, b"x").unwrap_err();
+        assert!(matches!(err, InjectError::Malformed(_)), "{err:?}");
+        assert!(err.to_string().contains("bad magic"));
+    }
+
+    #[test]
+    fn read_layout_rejects_a_zero_size_load_command() {
+        // magic + cputype + ncmds=1, then a load command with cmdsize < 8 → malformed.
+        let mut m = vec![0u8; 48];
+        put_u32(&mut m, 0, MH_MAGIC_64);
+        put_u32(&mut m, 4, CPU_TYPE_ARM64);
+        put_u32(&mut m, 16, 1); // ncmds
+        put_u32(&mut m, 32, LC_SEGMENT_64);
+        put_u32(&mut m, 36, 4); // cmdsize < 8
+        let err = splice_macho_segment(&m, b"x").unwrap_err();
+        assert!(
+            err.to_string().contains("malformed load command"),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn read_layout_rejects_a_macho_without_linkedit() {
+        // A single __TEXT segment with a mapped section but NO __LINKEDIT → no anchor.
+        let cmdsize = SEGMENT_COMMAND_64_SIZE + SECTION_64_SIZE;
+        let mut m = vec![0u8; MACH_HEADER_64_SIZE + cmdsize];
+        put_u32(&mut m, 0, MH_MAGIC_64);
+        put_u32(&mut m, 4, CPU_TYPE_ARM64);
+        put_u32(&mut m, 16, 1); // ncmds
+        let text = MACH_HEADER_64_SIZE;
+        put_u32(&mut m, text, LC_SEGMENT_64);
+        put_u32(&mut m, text + 4, cmdsize as u32);
+        m[text + 8..text + 14].copy_from_slice(b"__TEXT");
+        put_u32(&mut m, text + 64, 1); // nsects = 1
+        let sect = text + SEGMENT_COMMAND_64_SIZE;
+        m[sect..sect + 6].copy_from_slice(b"__text");
+        put_u32(&mut m, sect + 48, 0x1000); // a mapped section offset (nonzero)
+        let err = splice_macho_segment(&m, b"x").unwrap_err();
+        assert!(err.to_string().contains("no __LINKEDIT segment"), "{err:?}");
+    }
+
+    /// A synthetic, splice-able Mach-O with NO code signature and a linkedit-pointing
+    /// command (`LC_SYMTAB`) placed BEFORE the `__LINKEDIT` segment command — so
+    /// `splice_macho_segment` exercises the no-signature `linkedit_end` arm, the
+    /// pointer-before-`__LINKEDIT` (`field.at` unchanged) rebase branch, the nonzero-offset
+    /// bump, and the non-ARM64 page-size branch. Built as x86_64 to hit the 0x1000 page.
+    /// Returns a stub whose splice round-trips a real pressed-data section back to `raw`.
+    #[test]
+    fn splice_macho_round_trips_without_a_signature_and_bumps_prior_pointers() {
+        const CPU_TYPE_X86_64: u32 = 0x0100_0007;
+        const LINKEDIT_FILEOFF: usize = 0x2000;
+        const FIRST_SECT_OFFSET: u32 = 0x1000;
+        const LINKEDIT_BODY: usize = 64;
+
+        let text = MACH_HEADER_64_SIZE; // 32
+        let text_cmdsize = SEGMENT_COMMAND_64_SIZE + SECTION_64_SIZE; // 152
+        let symtab = text + text_cmdsize; // 184
+        let symtab_cmdsize = 24usize;
+        let le = symtab + symtab_cmdsize; // 208 (__LINKEDIT LC)
+        let end_of_lc = le + SEGMENT_COMMAND_64_SIZE; // 280
+
+        let mut stub = vec![0u8; LINKEDIT_FILEOFF + LINKEDIT_BODY];
+        put_u32(&mut stub, 0, MH_MAGIC_64);
+        put_u32(&mut stub, 4, CPU_TYPE_X86_64); // non-ARM64 → 0x1000 page branch
+        put_u32(&mut stub, 16, 3); // ncmds
+
+        // __TEXT with one mapped section far past end_of_lc (ample header slack).
+        put_u32(&mut stub, text, LC_SEGMENT_64);
+        put_u32(&mut stub, text + 4, text_cmdsize as u32);
+        stub[text + 8..text + 14].copy_from_slice(b"__TEXT");
+        put_u32(&mut stub, text + 64, 1); // nsects
+        let sect = text + SEGMENT_COMMAND_64_SIZE;
+        stub[sect..sect + 6].copy_from_slice(b"__text");
+        put_u32(&mut stub, sect + 48, FIRST_SECT_OFFSET);
+
+        // LC_SYMTAB BEFORE __LINKEDIT with nonzero symoff/stroff (into linkedit).
+        put_u32(&mut stub, symtab, LC_SYMTAB);
+        put_u32(&mut stub, symtab + 4, symtab_cmdsize as u32);
+        put_u32(&mut stub, symtab + 8, LINKEDIT_FILEOFF as u32); // symoff
+        put_u32(&mut stub, symtab + 16, (LINKEDIT_FILEOFF + 16) as u32); // stroff
+
+        // __LINKEDIT (no LC_CODE_SIGNATURE anywhere).
+        put_u32(&mut stub, le, LC_SEGMENT_64);
+        put_u32(&mut stub, le + 4, SEGMENT_COMMAND_64_SIZE as u32);
+        stub[le + 8..le + 18].copy_from_slice(b"__LINKEDIT");
+        put_u64(&mut stub, le + 24, 0x1_0000); // vmaddr
+        put_u64(&mut stub, le + 40, LINKEDIT_FILEOFF as u64); // fileoff
+        put_u64(&mut stub, le + 48, LINKEDIT_BODY as u64); // filesize
+        assert_eq!(end_of_lc, le + SEGMENT_COMMAND_64_SIZE);
+
+        let raw = b"\x7fELF the synthetic-splice addon payload, compressible! ".repeat(20);
+        let section = crate::build_section_payload(&raw, Platform::Darwin, Arch::X64, Libc::Na, 12);
+        let spliced = splice_macho_segment(&stub, &section).expect("synthetic splice succeeds");
+        assert_eq!(
+            crate::unwrap_if_hybrid(&spliced).as_deref(),
+            Some(raw.as_slice()),
+            "the spliced Mach-O's SMOL/__PRESSED_DATA section round-trips to the raw addon"
+        );
+    }
+
+    #[test]
+    fn inject_elf_rejects_malformed_headers() {
+        // 32-bit ELF (EI_CLASS != 2).
+        let e32 = [0x7f, b'E', b'L', b'F', 1, 1, 1, 0];
+        assert!(inject_elf(&e32, b"x")
+            .unwrap_err()
+            .to_string()
+            .contains("64-bit"));
+        // Big-endian ELF (EI_DATA != 1).
+        let ebe = [0x7f, b'E', b'L', b'F', 2, 2, 1, 0];
+        assert!(inject_elf(&ebe, b"x")
+            .unwrap_err()
+            .to_string()
+            .contains("little-endian"));
+        // Unexpected e_shentsize.
+        let mut ebad = vec![0u8; 64];
+        ebad[0..4].copy_from_slice(b"\x7fELF");
+        ebad[4] = 2;
+        ebad[5] = 1;
+        put_u16(&mut ebad, 58, 40); // e_shentsize != 64
+        assert!(inject_elf(&ebad, b"x")
+            .unwrap_err()
+            .to_string()
+            .contains("e_shentsize"));
+        // No usable section header table (e_shnum == 0).
+        let mut enosht = vec![0u8; 64];
+        enosht[0..4].copy_from_slice(b"\x7fELF");
+        enosht[4] = 2;
+        enosht[5] = 1;
+        put_u16(&mut enosht, 58, 64); // e_shentsize == 64
+        put_u16(&mut enosht, 60, 0); // e_shnum == 0
+        assert!(inject_elf(&enosht, b"x")
+            .unwrap_err()
+            .to_string()
+            .contains("no usable section header table"));
+    }
+
+    #[test]
+    fn inject_pe_rejects_malformed_headers() {
+        // Bad NT signature.
+        let mut bad_sig = minimal_pe();
+        bad_sig[0x40..0x44].copy_from_slice(b"XX\0\0");
+        assert!(inject_pe(&bad_sig, b"x")
+            .unwrap_err()
+            .to_string()
+            .contains("bad NT signature"));
+
+        // Zero SectionAlignment.
+        let mut zero_align = minimal_pe();
+        let opt_off = 0x40 + 4 + 20;
+        put_u32(&mut zero_align, opt_off + 32, 0); // SectionAlignment = 0
+        assert!(inject_pe(&zero_align, b"x")
+            .unwrap_err()
+            .to_string()
+            .contains("zero PE Section/FileAlignment"));
+
+        // No header slack for a new section header (SizeOfHeaders too small).
+        let mut no_slack = minimal_pe();
+        put_u32(&mut no_slack, opt_off + 60, 0x100); // SizeOfHeaders < new_hdr + 40
+        assert!(inject_pe(&no_slack, b"x")
+            .unwrap_err()
+            .to_string()
+            .contains("no PE header slack"));
+    }
 }

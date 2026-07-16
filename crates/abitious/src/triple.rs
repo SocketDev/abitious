@@ -84,6 +84,20 @@ mod tests {
     }
 
     #[test]
+    fn triple_of_covers_the_ia32_and_arm_arches() {
+        // `ia32`/`arm` are not shipped @abitious targets, but `arch_str` handles the full
+        // `Arch` enum; pin the two remaining arms so the mapping stays complete.
+        assert_eq!(
+            triple_of(Platform::Win32, Arch::Ia32, Libc::Na),
+            "win32-ia32-msvc"
+        );
+        assert_eq!(
+            triple_of(Platform::Linux, Arch::Arm, Libc::Glibc),
+            "linux-arm-gnu"
+        );
+    }
+
+    #[test]
     fn host_triple_is_one_of_the_shipped_targets() {
         const SHIPPED: [&str; 8] = [
             "darwin-arm64",

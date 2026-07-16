@@ -145,9 +145,16 @@ pub enum Libc {
 impl Platform {
     /// The host OS the running binary was built for.
     pub fn detect() -> Self {
-        if cfg!(target_os = "macos") {
+        Self::from_cfg(cfg!(target_os = "macos"), cfg!(target_os = "windows"))
+    }
+
+    /// The pure host-dispatch policy, split from the `cfg!` evaluation so every platform arm
+    /// is unit-tested regardless of the host running the tests (mirrors [`crate::fscompress`]'s
+    /// `classify_fs` split and `triple::triple_of`; no single host can execute all arms).
+    fn from_cfg(is_macos: bool, is_windows: bool) -> Self {
+        if is_macos {
             Platform::Darwin
-        } else if cfg!(target_os = "windows") {
+        } else if is_windows {
             Platform::Win32
         } else {
             Platform::Linux
@@ -158,11 +165,20 @@ impl Platform {
 impl Arch {
     /// The host CPU the running binary was built for.
     pub fn detect() -> Self {
-        if cfg!(target_arch = "aarch64") {
+        Self::from_cfg(
+            cfg!(target_arch = "aarch64"),
+            cfg!(target_arch = "x86"),
+            cfg!(target_arch = "arm"),
+        )
+    }
+
+    /// Pure host-dispatch policy, split from `cfg!` so every arch arm is testable on any host.
+    fn from_cfg(is_aarch64: bool, is_x86: bool, is_arm: bool) -> Self {
+        if is_aarch64 {
             Arch::Arm64
-        } else if cfg!(target_arch = "x86") {
+        } else if is_x86 {
             Arch::Ia32
-        } else if cfg!(target_arch = "arm") {
+        } else if is_arm {
             Arch::Arm
         } else {
             Arch::X64
@@ -173,9 +189,14 @@ impl Arch {
 impl Libc {
     /// The host libc — `Musl`/`Glibc` on Linux, `Na` everywhere else.
     pub fn detect() -> Self {
-        if !cfg!(target_os = "linux") {
+        Self::from_cfg(cfg!(target_os = "linux"), cfg!(target_env = "musl"))
+    }
+
+    /// Pure host-dispatch policy, split from `cfg!` so every libc arm is testable on any host.
+    fn from_cfg(is_linux: bool, is_musl: bool) -> Self {
+        if !is_linux {
             Libc::Na
-        } else if cfg!(target_env = "musl") {
+        } else if is_musl {
             Libc::Musl
         } else {
             Libc::Glibc
@@ -998,5 +1019,146 @@ mod tests {
         assert_eq!(s.len(), HEADER_LEN);
         assert!(decode_pressed_data(&s).is_none());
         assert!(!read_section_info(&s).unwrap().integrity_verified);
+    }
+
+    #[test]
+    fn detect_from_cfg_covers_every_platform_arch_and_libc_arm() {
+        // The host-dispatch policy split from `cfg!` — every arm is pinned here regardless of
+        // the host, so the platform matrix is covered without a per-OS test run.
+        assert_eq!(Platform::from_cfg(true, false), Platform::Darwin);
+        assert_eq!(Platform::from_cfg(false, true), Platform::Win32);
+        assert_eq!(Platform::from_cfg(false, false), Platform::Linux);
+
+        assert_eq!(Arch::from_cfg(true, false, false), Arch::Arm64);
+        assert_eq!(Arch::from_cfg(false, true, false), Arch::Ia32);
+        assert_eq!(Arch::from_cfg(false, false, true), Arch::Arm);
+        assert_eq!(Arch::from_cfg(false, false, false), Arch::X64);
+
+        assert_eq!(Libc::from_cfg(false, false), Libc::Na); // non-Linux → Na
+        assert_eq!(Libc::from_cfg(true, true), Libc::Musl);
+        assert_eq!(Libc::from_cfg(true, false), Libc::Glibc);
+
+        // And `detect()` returns one of those on this host (exercises the `cfg!` wrapper).
+        let _ = (Platform::detect(), Arch::detect(), Libc::detect());
+    }
+
+    #[test]
+    fn name_eq_rejects_a_want_longer_than_the_field() {
+        // The early-out when `want` is longer than the fixed-width slot (line-guarded so the
+        // slice index below never panics).
+        assert!(!name_eq(b"AB", b"ABCD"));
+        assert!(name_eq(b"AB\0\0", b"AB"));
+    }
+
+    // --- Reader defensive parse arms: crafted malformed Mach-O / ELF / PE (inline bytes).
+    // find_pressed_data_section dispatches on the leading magic; each fixture drives one
+    // otherwise-untaken guard in find_macho / find_elf / find_pe.
+
+    #[test]
+    fn find_macho_rejects_a_zero_length_load_command() {
+        // magic + ncmds=1, then a load command whose cmdsize is 0 → the zero-cmdsize guard.
+        let mut m = vec![0u8; 40];
+        m[0..4].copy_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
+        m[16..20].copy_from_slice(&1u32.to_le_bytes()); // ncmds
+                                                        // cmd @32, cmdsize @36 both left 0.
+        assert!(unwrap_if_hybrid(&m).is_none());
+    }
+
+    #[test]
+    fn find_macho_walks_past_a_non_pressed_section_in_the_smol_segment() {
+        // A SMOL LC_SEGMENT_64 with one section that is NOT __PRESSED_DATA → the section loop
+        // advances past it and the command loop then falls through to None.
+        const LC_SEGMENT_64: u32 = 0x19;
+        let cmdsize = 72 + 80usize;
+        let mut m = vec![0u8; 32 + cmdsize];
+        m[0..4].copy_from_slice(&[0xcf, 0xfa, 0xed, 0xfe]);
+        m[16..20].copy_from_slice(&1u32.to_le_bytes()); // ncmds
+        let seg = 32;
+        m[seg..seg + 4].copy_from_slice(&LC_SEGMENT_64.to_le_bytes());
+        m[seg + 4..seg + 8].copy_from_slice(&(cmdsize as u32).to_le_bytes());
+        m[seg + 8..seg + 12].copy_from_slice(b"SMOL");
+        m[seg + 64..seg + 68].copy_from_slice(&1u32.to_le_bytes()); // nsects = 1
+        let sect = seg + 72;
+        m[sect..sect + 7].copy_from_slice(b"__OTHER"); // not __PRESSED_DATA
+        assert!(unwrap_if_hybrid(&m).is_none());
+    }
+
+    #[test]
+    fn find_elf_rejects_32_bit_and_a_bad_section_header_table() {
+        // EI_CLASS != 2 (32-bit) → refused up front.
+        let mut e = vec![0u8; 8];
+        e[0..4].copy_from_slice(&[0x7f, b'E', b'L', b'F']);
+        e[4] = 1; // 32-bit
+        assert!(unwrap_if_hybrid(&e).is_none());
+
+        // 64-bit but a zero e_shentsize → the unusable-SHT guard.
+        let mut e = vec![0u8; 64];
+        e[0..4].copy_from_slice(&[0x7f, b'E', b'L', b'F']);
+        e[4] = 2; // 64-bit
+        e[58..60].copy_from_slice(&0u16.to_le_bytes()); // e_shentsize = 0 (< 64)
+        e[60..62].copy_from_slice(&1u16.to_le_bytes()); // e_shnum = 1
+        assert!(unwrap_if_hybrid(&e).is_none());
+    }
+
+    #[test]
+    fn find_elf_returns_none_when_no_pressed_section_is_present() {
+        // A well-formed ELF64 whose only section is `.shstrtab` (no `.PRESSED_DATA`) → the
+        // section-name loop runs to completion and returns None.
+        let shentsize = 64usize;
+        let mut strtab = vec![0u8];
+        let shstrtab_name = strtab.len() as u32;
+        strtab.extend_from_slice(b".shstrtab\0");
+        let strtab_off = 64usize;
+        let shoff = strtab_off + strtab.len();
+        let mut e = vec![0u8; shoff + shentsize];
+        e[0..4].copy_from_slice(&[0x7f, b'E', b'L', b'F']);
+        e[4] = 2;
+        e[40..48].copy_from_slice(&(shoff as u64).to_le_bytes());
+        e[58..60].copy_from_slice(&(shentsize as u16).to_le_bytes());
+        e[60..62].copy_from_slice(&1u16.to_le_bytes()); // e_shnum = 1
+        e[62..64].copy_from_slice(&0u16.to_le_bytes()); // e_shstrndx = 0
+        e[strtab_off..strtab_off + strtab.len()].copy_from_slice(&strtab);
+        let sh0 = shoff;
+        e[sh0..sh0 + 4].copy_from_slice(&shstrtab_name.to_le_bytes());
+        e[sh0 + 24..sh0 + 32].copy_from_slice(&(strtab_off as u64).to_le_bytes());
+        e[sh0 + 32..sh0 + 40].copy_from_slice(&(strtab.len() as u64).to_le_bytes());
+        assert!(unwrap_if_hybrid(&e).is_none());
+    }
+
+    #[test]
+    fn find_pe_rejects_a_bad_nt_signature_and_too_many_sections() {
+        let pe_off = 0x40usize;
+        // Bad NT signature at e_lfanew.
+        let mut p = vec![0u8; pe_off + 24];
+        p[0..2].copy_from_slice(b"MZ");
+        p[0x3c..0x40].copy_from_slice(&(pe_off as u32).to_le_bytes());
+        p[pe_off..pe_off + 4].copy_from_slice(b"XX\0\0"); // not "PE\0\0"
+        assert!(unwrap_if_hybrid(&p).is_none());
+
+        // Valid "PE\0\0" but an absurd NumberOfSections → refused.
+        let mut p = vec![0u8; pe_off + 24];
+        p[0..2].copy_from_slice(b"MZ");
+        p[0x3c..0x40].copy_from_slice(&(pe_off as u32).to_le_bytes());
+        p[pe_off..pe_off + 4].copy_from_slice(b"PE\0\0");
+        p[pe_off + 6..pe_off + 8].copy_from_slice(&201u16.to_le_bytes()); // NumberOfSections
+        assert!(unwrap_if_hybrid(&p).is_none());
+    }
+
+    #[test]
+    fn find_pe_returns_none_when_no_pressed_section_is_present() {
+        // A PE with a single `.text` section (not `.PRESSED`) → the section loop advances
+        // past it and returns None.
+        let pe_off = 0x40usize;
+        let coff = pe_off + 4;
+        let size_of_optional = 0usize;
+        let sect_table = coff + 20 + size_of_optional;
+        let mut p = vec![0u8; sect_table + 40];
+        p[0..2].copy_from_slice(b"MZ");
+        p[0x3c..0x40].copy_from_slice(&(pe_off as u32).to_le_bytes());
+        p[pe_off..pe_off + 4].copy_from_slice(b"PE\0\0");
+        p[coff + 2..coff + 4].copy_from_slice(&1u16.to_le_bytes()); // NumberOfSections = 1
+        p[coff + 16..coff + 18].copy_from_slice(&(size_of_optional as u16).to_le_bytes());
+        p[sect_table..sect_table + 5].copy_from_slice(b".text"); // not ".PRESSED"
+        assert!(unwrap_if_hybrid(&p).is_none());
     }
 }

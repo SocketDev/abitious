@@ -17,6 +17,11 @@
 //! unchanged, so a mis-produced or unreadable hybrid degrades to an empty module rather
 //! than crashing the host process.
 
+// cargo-llvm-cov (nightly) sets `coverage_nightly`, enabling `#[coverage(off)]` on the
+// dlopen-only trampoline (reached only under a real Node `dlopen`) and the in-module test
+// block. A no-op on stable.
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 use std::ffi::c_void;
 #[allow(unused_imports)] // `Path` is used by the unix + windows `load_register` arms.
 use std::path::Path;
@@ -34,6 +39,13 @@ type RegisterFn = unsafe extern "C" fn(NapiEnv, NapiValue) -> NapiValue;
 ///
 /// # Safety
 /// Called by Node during module load with a valid `env` and `exports`.
+// coverage(off): this cdylib entry — and the `trampoline` / `load_register` it drives — run
+// only when Node `dlopen`s a real hybrid, so their SUCCESS (self-extract → dlopen → forward)
+// path is unreachable in-process. It is proven end-to-end by the gated M3/M4/M6 Node-dlopen
+// e2e (the marker-file oracle), which loads a SEPARATELY-BUILT, uninstrumented stub dylib
+// that llvm-cov cannot observe — so it is excluded from the denominator rather than counted
+// 0%. The in-module tests below still guard the fail-soft arms in-process.
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[no_mangle]
 pub unsafe extern "C" fn napi_register_module_v1(env: NapiEnv, exports: NapiValue) -> NapiValue {
     match trampoline(env, exports) {
@@ -49,6 +61,9 @@ pub unsafe extern "C" fn napi_register_module_v1(env: NapiEnv, exports: NapiValu
 /// # Safety
 /// `env`/`exports` are the opaque pointers Node handed us; they are only forwarded to the
 /// real addon's register function, never dereferenced here.
+// coverage(off): see `napi_register_module_v1` — the success forward path is Node-dlopen-only
+// (e2e-proven); the fail-soft `?` short-circuits are guarded by the in-module tests.
+#[cfg_attr(coverage_nightly, coverage(off))]
 unsafe fn trampoline(env: NapiEnv, exports: NapiValue) -> Option<NapiValue> {
     let me = self_path()?;
     // Section-based extraction (M1's unwrap_if_hybrid), NOT a footer: resolve_self returns
@@ -68,6 +83,10 @@ unsafe fn trampoline(env: NapiEnv, exports: NapiValue) -> Option<NapiValue> {
 /// # Safety
 /// FFI into the dynamic loader; the returned pointer is transmuted to the shared
 /// `RegisterFn` ABI, which the addon exports with exactly this signature.
+// coverage(off): the dlsym-SUCCESS + transmute tail is reached only when Node dlopens a real
+// addon exporting `napi_register_module_v1` (e2e-proven); the dlopen-null / dlsym-null
+// fail-soft arms are guarded by the in-module tests.
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[cfg(unix)]
 unsafe fn load_register(path: &Path) -> Option<RegisterFn> {
     use std::os::unix::ffi::OsStrExt;
@@ -90,6 +109,9 @@ unsafe fn load_register(path: &Path) -> Option<RegisterFn> {
 /// # Safety
 /// FFI into the Windows loader; the resolved proc address is transmuted to the shared
 /// `RegisterFn` ABI the addon exports.
+// coverage(off): Windows loader forward — reached only under a real Node dlopen on win32
+// (best-effort target); excluded like the unix twin above.
+#[cfg_attr(coverage_nightly, coverage(off))]
 #[cfg(windows)]
 unsafe fn load_register(path: &Path) -> Option<RegisterFn> {
     use std::os::windows::ffi::OsStrExt;
@@ -110,4 +132,48 @@ unsafe fn load_register(path: &Path) -> Option<RegisterFn> {
         unsafe extern "system" fn() -> isize,
         RegisterFn,
     >(proc))
+}
+
+#[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn register_is_fail_soft_when_self_is_not_a_hybrid() {
+        // In the test binary `self_path()` resolves to this (non-hybrid) executable, so
+        // `resolve_self` returns None and the trampoline short-circuits: the entry hands back
+        // the exact `exports` pointer it was given — fail-soft, never a crash on the host.
+        let exports = 0xABCD_1234_usize as NapiValue;
+        let got = unsafe { napi_register_module_v1(std::ptr::null_mut(), exports) };
+        assert_eq!(
+            got, exports,
+            "fail-soft returns the given exports unchanged"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_register_is_none_for_a_nonexistent_path() {
+        // dlopen of a path that does not exist → null handle → None (never a bogus transmute).
+        let got = unsafe { load_register(Path::new("/no/such/abitious-stub/addon.node")) };
+        assert!(got.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_register_is_none_when_the_napi_symbol_is_absent() {
+        // A real, loadable system dylib that does NOT export napi_register_module_v1: dlopen
+        // succeeds but dlsym returns null → None. (macOS system libs load from the dyld cache
+        // even without an on-disk file, so dlopen-by-name still yields a handle.)
+        #[cfg(target_os = "macos")]
+        let lib = Path::new("/usr/lib/libSystem.B.dylib");
+        #[cfg(not(target_os = "macos"))]
+        let lib = Path::new("libc.so.6");
+        let got = unsafe { load_register(lib) };
+        assert!(
+            got.is_none(),
+            "a lib without the napi symbol resolves to None"
+        );
+    }
 }

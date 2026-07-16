@@ -15,6 +15,15 @@ categories = ["development-tools"]
 [lib]
 crate-type = ["cdylib"]
 
+[lints.rust]
+# `coverage` / `coverage_nightly` are set by cargo-llvm-cov (nightly) to gate the
+# `#[coverage(off)]` markers on the test module + the dlopen-only trampoline; declare
+# them so stable builds don't warn.
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(coverage)',
+    'cfg(coverage_nightly)',
+] }
+
 # The stub links ONLY the dep-lean reader/ABI (default features — NO resign, so no
 # apple-codesign/reqwest/tokio/hyper) plus libc for the dlopen/dlsym forward.
 [dependencies]

@@ -241,6 +241,18 @@ fn setxattr(path: &std::ffi::CStr, name: &std::ffi::CStr, value: &[u8]) -> Resul
     Ok(())
 }
 
+/// Flag the fresh temp fd `UF_COMPRESSED`. Extracted + `coverage(off)`: `fchflags` failing
+/// on a just-created, owned APFS/HFS temp fd — right after the two `setxattr` calls on that
+/// same fd succeeded — has no in-process trigger, so its error arm is a defensive
+/// syscall-failure guard rather than a reachable branch.
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn set_uf_compressed(file: &std::fs::File) -> Result<(), Error> {
+    if unsafe { libc::fchflags(file.as_raw_fd(), UF_COMPRESSED) } != 0 {
+        return Err(io("fchflags"));
+    }
+    Ok(())
+}
+
 pub(crate) fn apply_inplace(path: &Path, snapshot: &[u8]) -> Result<(), Error> {
     // Fail-soft: skip if we can't write the original (by mode or ownership) — the
     // temp+rename below would otherwise replace even a file we can't open for write.
@@ -312,9 +324,7 @@ pub(crate) fn apply_bytes(
         let ctmp = cstring(&tmp)?;
         setxattr(&ctmp, c"com.apple.decmpfs", &header)?;
         setxattr(&ctmp, c"com.apple.ResourceFork", &resource_fork)?;
-        if unsafe { libc::fchflags(file.as_raw_fd(), UF_COMPRESSED) } != 0 {
-            return Err(io("fchflags"));
-        }
+        set_uf_compressed(&file)?;
         Ok(())
     })();
 

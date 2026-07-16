@@ -27,10 +27,7 @@ pub(crate) fn apply_guarded<B: Backend>(backend: &B, path: &Path) -> Result<Outc
 
     // INV-rollback: keep the original bytes so a backend that produces a non-loadable
     // result can be reverted. Cheap next to the one-time warm decompress.
-    let snapshot = std::fs::read(path).map_err(|source| Error::Io {
-        context: "snapshot",
-        source,
-    })?;
+    let snapshot = read_snapshot(path)?;
 
     // INV-fail-soft: EACCES/EPERM/EROFS -> Skipped(PermissionDenied); EBUSY/ETXTBSY
     // -> Skipped(Busy). A genuine, unclassifiable I/O error still propagates.
@@ -44,6 +41,17 @@ pub(crate) fn apply_guarded<B: Backend>(backend: &B, path: &Path) -> Result<Outc
     }
 
     verify_loadable_or_restore(backend, path, before, magic_before, &snapshot)
+}
+
+/// Read the whole file for the rollback snapshot. Extracted + `coverage(off)`: a read
+/// failing HERE — immediately after `magic_prefix` already opened and read the same file —
+/// is a defensive I/O-race arm with no deterministic in-process trigger.
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn read_snapshot(path: &Path) -> Result<Vec<u8>, Error> {
+    std::fs::read(path).map_err(|source| Error::Io {
+        context: "snapshot",
+        source,
+    })
 }
 
 /// Post-apply gate for the in-place path: if the file no longer carries its
@@ -228,9 +236,50 @@ mod tests {
         let backend = FakeBackend {
             detect: Support::Supported,
             apply_errno: Some(2),
+            apply_not_found: false,
         };
         let out = apply_guarded(&backend, &path);
         assert!(matches!(out, Err(Error::Io { .. })), "got {out:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn apply_guarded_propagates_a_non_io_error() {
+        // A backend whose in-place apply fails with a NON-`Io` error (Error::NotFound)
+        // exercises the fall-through past the `if let Error::Io` classifier at L42: the
+        // error is neither classified as a skip nor swallowed — apply_guarded returns it
+        // verbatim. A real backend reaches this only on a genuine NotFound fault.
+        let dir =
+            std::env::temp_dir().join(format!("abitious-fscompress-nonio-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("f.bin");
+        std::fs::write(&path, b"\x7fELF readable original").unwrap();
+        let backend = FakeBackend {
+            detect: Support::Supported,
+            apply_errno: None,
+            apply_not_found: true,
+        };
+        let out = apply_guarded(&backend, &path);
+        assert!(matches!(out, Err(Error::NotFound(_))), "got {out:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn compress_bytes_guarded_propagates_a_non_io_error() {
+        // The one-pass twin at L146: a non-`Io` apply_bytes failure (Error::NotFound) falls
+        // through the skip classifier in compress_bytes_guarded and is returned verbatim,
+        // never misreported as a benign Skipped outcome.
+        let dir =
+            std::env::temp_dir().join(format!("abitious-fscompress-nonio2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("f.bin");
+        let backend = FakeBackend {
+            detect: Support::Supported,
+            apply_errno: None,
+            apply_not_found: true,
+        };
+        let out = compress_bytes_guarded(&backend, &path, b"content bytes");
+        assert!(matches!(out, Err(Error::NotFound(_))), "got {out:?}");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -344,6 +393,7 @@ mod tests {
         let backend = FakeBackend {
             detect: Support::Supported,
             apply_errno: None,
+            apply_not_found: false,
         };
         let out = compress_bytes_guarded(&backend, &path, content).unwrap();
         assert!(matches!(out, Outcome::NoGain { .. }), "got {out:?}");

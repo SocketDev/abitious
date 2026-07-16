@@ -451,12 +451,19 @@ pub(crate) struct FakeBackend {
     pub(crate) detect: Support,
     /// `None` → apply succeeds; `Some(errno)` → apply fails with that OS error.
     pub(crate) apply_errno: Option<i32>,
+    /// `true` → apply fails with a non-`Io` [`Error::NotFound`] (takes precedence over
+    /// `apply_errno`). Drives the non-`Io` error fall-through in `safety`'s apply /
+    /// compress classifiers — an arm a real backend reaches only on a `NotFound` fault.
+    pub(crate) apply_not_found: bool,
 }
 
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 impl FakeBackend {
     fn apply_result(&self) -> Result<(), Error> {
+        if self.apply_not_found {
+            return Err(Error::NotFound(std::path::PathBuf::from("/fake/not/found")));
+        }
         match self.apply_errno {
             None => Ok(()),
             Some(errno) => Err(Error::Io {
@@ -868,6 +875,7 @@ mod tests {
         let backend = FakeBackend {
             detect: Support::AlreadyCompressed,
             apply_errno: None,
+            apply_not_found: false,
         };
         assert!(matches!(
             compress_file_with(&backend, &path),
@@ -885,6 +893,7 @@ mod tests {
         let backend = FakeBackend {
             detect: Support::Unsupported(UnsupportedReason::Filesystem),
             apply_errno: None,
+            apply_not_found: false,
         };
         let out = compress_bytes_with(&backend, &path, &content, &Gate::any());
         assert!(
@@ -905,6 +914,59 @@ mod tests {
         let backend = FakeBackend {
             detect: Support::Supported,
             apply_errno: Some(13), // EACCES
+            apply_not_found: false,
+        };
+        let out = compress_bytes_with(&backend, &path, &content, &Gate::any());
+        assert!(
+            matches!(
+                out,
+                Ok(Outcome::Skipped {
+                    reason: SkipReason::IntegrityRevert
+                })
+            ),
+            "got {out:?}"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), content, "bytes landed plain");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn compress_bytes_probe_target_falls_back_to_the_path_when_parentless() {
+        // An empty path does not exist AND has no parent, so the probe-target selection
+        // takes the `None => path` arm (mod.rs L269). The fake reports Unsupported, so the
+        // plain-write fallback fires and, with no parent dir to write into, surfaces a hard
+        // Err — the point is the otherwise-unreachable parentless probe-target arm ran.
+        let backend = FakeBackend {
+            detect: Support::Unsupported(UnsupportedReason::Filesystem),
+            apply_errno: None,
+            apply_not_found: false,
+        };
+        let out = compress_bytes_with(&backend, std::path::Path::new(""), b"data", &Gate::any());
+        assert!(
+            matches!(
+                out,
+                Err(Error::Io {
+                    context: "no parent dir",
+                    ..
+                })
+            ),
+            "got {out:?}"
+        );
+    }
+
+    #[test]
+    fn compress_bytes_falls_back_to_plain_on_a_guarded_hard_error() {
+        // detect → Supported but the guarded apply fails with an UNCLASSIFIABLE error
+        // (ENOENT, not a permission/busy/too-large skip): compress_bytes_guarded returns
+        // Err, driving the `Err(_)` alternative of the guarded match arm. The bytes still
+        // land via the plain-write fallback and Skipped(IntegrityRevert) is reported.
+        let dir = scratch("guard-hard-err");
+        let path = dir.join("x.node");
+        let content = fake_addon();
+        let backend = FakeBackend {
+            detect: Support::Supported,
+            apply_errno: Some(2), // ENOENT — unclassifiable → guarded returns Err
+            apply_not_found: false,
         };
         let out = compress_bytes_with(&backend, &path, &content, &Gate::any());
         assert!(
