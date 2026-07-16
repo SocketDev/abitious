@@ -26,6 +26,10 @@
 //! producer half decmpfs never had (`build_section_payload`) plus a byte-faithful
 //! copy of the reader so both live in one crate.
 
+mod inject;
+
+pub use inject::{inject_elf, inject_macho, inject_pe, inject_pressed_data, resign, InjectError};
+
 use sha2::{Digest, Sha256, Sha512};
 
 /// "__SMOL_PRESSED_DATA_MAGIC_MARKER" — the 32-byte section-start marker.
