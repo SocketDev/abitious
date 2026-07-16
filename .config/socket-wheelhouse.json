@@ -2,7 +2,7 @@
   "$schema": "./socket-wheelhouse-schema.json",
   "schemaVersion": 1,
   "repoName": "abitious",
-  "repo": { "type": "mono" },
+  "repo": { "type": "solo" },
   "build": { "from": "crates-registry", "type": "rust" },
   "secondaries": [{ "from": "npm-registry", "type": "addon" }]
 }
