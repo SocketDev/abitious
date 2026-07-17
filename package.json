@@ -1,9 +1,10 @@
 {
-  "private": true,
   "name": "abitious-workspace",
+  "private": true,
   "description": "Workspace root for the abitious npm distribution (@abitious/cli + per-triple platform packages). The crates are the Cargo workspace; this drives codegen, typecheck, and the JS tests.",
   "license": "MIT",
   "scripts": {
+    "build": "cargo build --workspace",
     "coverage": "node scripts/coverage.mts",
     "gen": "node scripts/gen-packages.mts",
     "gen:check": "node scripts/gen-packages.mts --check",
@@ -20,6 +21,7 @@
     "format:check": "node scripts/fleet/format.mts --check",
     "lockstep": "node scripts/fleet/lockstep.mts",
     "lockstep:emit-schema": "node scripts/fleet/lockstep-emit-schema.mts",
+    "lint": "node scripts/fleet/lint.mts",
     "prepare": "node scripts/fleet/install-git-hooks.mts",
     "security": "node scripts/fleet/security.mts",
     "setup-security-tools": "node .claude/hooks/fleet/setup-security-tools/install.mts",
@@ -47,7 +49,7 @@
     "@socketsecurity/sdk": "catalog:",
     "@socketsecurity/sdk-stable": "catalog:",
     "@types/mdast": "catalog:",
-    "@types/node": "22.13.0",
+    "@types/node": "catalog:",
     "@types/semver": "catalog:",
     "@types/shell-quote": "catalog:",
     "@vitest/coverage-v8": "catalog:",
@@ -78,8 +80,8 @@
     }
   },
   "engines": {
-    "pnpm": ">=11.0.5",
-    "node": ">=24"
+    "node": ">=24",
+    "pnpm": ">=11.0.5"
   },
   "allowScripts": {
     "cpu-features": false,
