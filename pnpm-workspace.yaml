@@ -80,6 +80,7 @@ packages:
   - npm/*
   - '.config/fleet/oxlint-plugin'
   - '.config/fleet/oxlint-plugin/fleet/*'
+  - '.claude/hooks/fleet/*'
 trustPolicy: no-downgrade
 minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
