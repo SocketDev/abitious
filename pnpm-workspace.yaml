@@ -116,4 +116,5 @@ linkWorkspacePackages: true
 allowBuilds:
   cpu-features: false
   protobufjs: false
+  puppeteer: false
   ssh2: false
