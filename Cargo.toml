@@ -7,10 +7,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/abitious-decmpfs",
-    "crates/abitious-stub",
-    "crates/abitious-producer",
-    "crates/abitious",
+  "crates/abitious-decmpfs",
+  "crates/abitious-stub",
+  "crates/abitious-producer",
+  "crates/abitious",
 ]
 
 # The 0.x version signals the API is pre-stable; the pressed-data SECTION FORMAT
@@ -47,17 +47,17 @@ libc = "0.2"
 # `GetProcAddress` for the stub's forward. cfg(windows)-gated, so it never appears in
 # the darwin/linux `cargo tree -e normal` dep-budget check.
 windows-sys = { version = "0.59", features = [
-    "Win32_Foundation",
-    "Win32_System_LibraryLoader",
-    # fscompress/windows.rs (NTFS FSCTL_SET_COMPRESSION) + verify.rs on-disk size.
-    # This mirrors decmpfs's proven set for the same code: DeviceIoControl is in
-    # System::IO; CreateFileW / GetCompressedFileSizeW + the FSCTL / COMPRESSION_FORMAT
-    # constants are in Storage::FileSystem; CreateFileW's SECURITY_ATTRIBUTES param
-    # pulls Security (without it CreateFileW is unresolved). cfg(windows)-only, so the
-    # gap only surfaces on the Windows CI leg (never on the macOS dev host).
-    "Win32_Security",
-    "Win32_Storage_FileSystem",
-    "Win32_System_IO",
+  "Win32_Foundation",
+  "Win32_System_LibraryLoader",
+  # fscompress/windows.rs (NTFS FSCTL_SET_COMPRESSION) + verify.rs on-disk size.
+  # This mirrors decmpfs's proven set for the same code: DeviceIoControl is in
+  # System::IO; CreateFileW / GetCompressedFileSizeW + the FSCTL / COMPRESSION_FORMAT
+  # constants are in Storage::FileSystem; CreateFileW's SECURITY_ATTRIBUTES param
+  # pulls Security (without it CreateFileW is unresolved). cfg(windows)-only, so the
+  # gap only surfaces on the Windows CI leg (never on the macOS dev host).
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+  "Win32_System_IO",
 ] }
 
 # Mirror envrypt's release profile (the fleet-canonical native build).

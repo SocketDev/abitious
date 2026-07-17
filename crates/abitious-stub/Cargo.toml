@@ -20,8 +20,8 @@ crate-type = ["cdylib"]
 # `#[coverage(off)]` markers on the test module + the dlopen-only trampoline; declare
 # them so stable builds don't warn.
 unexpected_cfgs = { level = "warn", check-cfg = [
-    'cfg(coverage)',
-    'cfg(coverage_nightly)',
+  'cfg(coverage)',
+  'cfg(coverage_nightly)',
 ] }
 
 # The stub links ONLY the dep-lean reader/ABI (default features — NO resign, so no

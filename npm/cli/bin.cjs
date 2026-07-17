@@ -8,18 +8,24 @@
 const { spawnSync } = require('node:child_process')
 const { loadPlatform } = require('./loader.cjs')
 
+function writeStderr(message) {
+  process.stderr.write(message)
+}
+
 let resolution
 try {
   resolution = loadPlatform()
 } catch (error) {
-  process.stderr.write(`${error.message}\n`)
+  writeStderr(`${error.message}\n`)
   process.exit(1)
 }
 
-const result = spawnSync(resolution.bin, process.argv.slice(2), { stdio: 'inherit' })
+const result = spawnSync(resolution.bin, process.argv.slice(2), {
+  stdio: 'inherit',
+})
 
 if (result.error) {
-  process.stderr.write(
+  writeStderr(
     `abitious: failed to exec the prebuilt \`abi\` producer.\n` +
       `  Where: ${resolution.bin}\n` +
       `  Saw:   ${result.error.message}\n` +

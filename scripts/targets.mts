@@ -19,28 +19,42 @@
 // `libc` is also emitted as the npm install gate.
 
 export interface Target {
-  /** The npm suffix / package name tail: `@abitious/<triple>`. */
+  /**
+   * The npm suffix / package name tail: `@abitious/<triple>`.
+   */
   triple: string
-  /** npm `os` gate + `process.platform` value: darwin | linux | win32. */
+  /**
+   * Npm `os` gate + `process.platform` value: darwin | linux | win32.
+   */
   os: string
-  /** npm `cpu` gate + `process.arch` value: arm64 | x64 | ia32 | arm. */
+  /**
+   * Npm `cpu` gate + `process.arch` value: arm64 | x64 | ia32 | arm.
+   */
   cpu: string
-  /** npm `libc` gate — glibc | musl on Linux, omitted elsewhere. */
-  libc?: string
-  /** The Rust target triple `cargo build --target` / `rustup target add` uses. */
+  /**
+   * Npm `libc` gate — glibc | musl on Linux, omitted elsewhere.
+   */
+  libc?: string | undefined
+  /**
+   * The Rust target triple `cargo build --target` / `rustup target add` uses.
+   */
   rust: string
-  /** The GitHub Actions runner label to build this target on. */
+  /**
+   * The GitHub Actions runner label to build this target on.
+   */
   runner: string
   /**
-   * Tier-1 targets build in the FAST push/PR CI matrix (build.yml) — native on their
-   * runner, no cross C toolchain. Tier-2 targets — musl (zstd-sys needs a musl C
-   * toolchain) and Windows — are EXCLUDED from that fast subset (`--print-matrix`) but
-   * ARE built + shipped in the full RELEASE matrix (`--print-matrix-all`, used by
-   * github-release.yml + npm-publish.yml). Every target is always generated as an
+   * Tier-1 targets build in the FAST push/PR CI matrix (build.yml) — native on
+   * their runner, no cross C toolchain. Tier-2 targets — musl (zstd-sys needs a
+   * musl C toolchain) and Windows — are EXCLUDED from that fast subset
+   * (`--print-matrix`) but ARE built + shipped in the full RELEASE matrix
+   * (`--print-matrix-all`, used by github-release.yml + npm-publish.yml). Every
+   * target is always generated as an.
+   *
    * @abitious/<triple> manifest + optionalDependency regardless of tier; `tier1` only
    * selects the fast push/PR build subset.
    */
-  tier1?: boolean
+  tier1?: boolean | undefined
 }
 
 // The 8 napi-compress defaults.
@@ -112,9 +126,10 @@ export const TARGETS: Target[] = [
 ]
 
 /**
- * The cargo cdylib basename for the generic stub on `os`. cargo prefixes `lib` on
- * Unix and appends the platform extension; Windows has no prefix. Kept in lockstep
- * with `abitious-stub`'s `[lib]` (crate name `abitious_stub`, dashes → underscores).
+ * The cargo cdylib basename for the generic stub on `os`. cargo prefixes `lib`
+ * on Unix and appends the platform extension; Windows has no prefix. Kept in
+ * lockstep with `abitious-stub`'s `[lib]` (crate name `abitious_stub`, dashes →
+ * underscores).
  */
 export function stubArtifact(os: string): string {
   switch (os) {
@@ -127,10 +142,14 @@ export function stubArtifact(os: string): string {
   }
 }
 
-/** The prebuilt stub `.node` filename inside each @abitious/<triple> package. */
+/**
+ * The prebuilt stub `.node` filename inside each @abitious/<triple> package.
+ */
 export const STUB_NODE = 'stub.node'
 
-/** The host `abi` CLI binary name inside each package (`.exe` on Windows). */
+/**
+ * The host `abi` CLI binary name inside each package (`.exe` on Windows).
+ */
 export function abiBin(os: string): string {
   return os === 'win32' ? 'abi.exe' : 'abi'
 }

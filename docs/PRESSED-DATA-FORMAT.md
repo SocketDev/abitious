@@ -24,11 +24,11 @@ The pressed-data blob is stored as a **signable object-file section**, located v
 the binary's section / load-command table — **never** an EOF footer (an appended
 footer breaks Mach-O code-signature validation).
 
-| Object format | Location |
-| --- | --- |
-| Mach-O 64-bit | section `__PRESSED_DATA` in segment `SMOL` |
-| ELF 64-bit | section `.PRESSED_DATA` |
-| PE / COFF | section `.PRESSED` (the 8-char truncation of `.PRESSED_DATA`) |
+| Object format | Location                                                      |
+| ------------- | ------------------------------------------------------------- |
+| Mach-O 64-bit | section `__PRESSED_DATA` in segment `SMOL`                    |
+| ELF 64-bit    | section `.PRESSED_DATA`                                       |
+| PE / COFF     | section `.PRESSED` (the 8-char truncation of `.PRESSED_DATA`) |
 
 The magic dispatch: `cf fa ed fe` / `fe ed fa cf` → Mach-O, `7f 45 4c 46` → ELF,
 `4d 5a` (`MZ`) → PE.
@@ -37,25 +37,25 @@ The magic dispatch: `cf fa ed fe` / `fe ed fa cf` → Mach-O, `7f 45 4c 46` → 
 
 All integers are little-endian. Sizes in bytes.
 
-| Field | Size | Notes |
-| --- | --- | --- |
-| magic marker | 32 | ASCII `__SMOL_PRESSED_DATA_MAGIC_MARKER` |
-| compressed size | 8 | u64 — length of the zstd payload |
-| uncompressed size | 8 | u64 — length of the raw `.node` addon |
-| cache key | 16 | first 16 bytes of `SHA-256(raw addon)` |
-| platform metadata | 3 | `platform`, `arch`, `libc` enum bytes (below) |
-| integrity | 64 | `SHA-512(zstd payload)` |
-| has_config | 1 | `0` = no config (abitious always emits `0`) |
-| config | 1192 | present **only** if `has_config == 1`; parsed-past, never emitted |
-| payload | *compressed size* | the zstd frame |
+| Field             | Size              | Notes                                                             |
+| ----------------- | ----------------- | ----------------------------------------------------------------- |
+| magic marker      | 32                | ASCII `__SMOL_PRESSED_DATA_MAGIC_MARKER`                          |
+| compressed size   | 8                 | u64 — length of the zstd payload                                  |
+| uncompressed size | 8                 | u64 — length of the raw `.node` addon                             |
+| cache key         | 16                | first 16 bytes of `SHA-256(raw addon)`                            |
+| platform metadata | 3                 | `platform`, `arch`, `libc` enum bytes (below)                     |
+| integrity         | 64                | `SHA-512(zstd payload)`                                           |
+| has_config        | 1                 | `0` = no config (abitious always emits `0`)                       |
+| config            | 1192              | present **only** if `has_config == 1`; parsed-past, never emitted |
+| payload           | _compressed size_ | the zstd frame                                                    |
 
 Fixed header length up to and including `has_config` is **132 bytes**
 (`32 + 8 + 8 + 16 + 3 + 64 + 1`).
 
 ### Platform / arch / libc enum bytes
 
-| `platform` | `arch` | `libc` |
-| --- | --- | --- |
+| `platform`                         | `arch`                                   | `libc`                           |
+| ---------------------------------- | ---------------------------------------- | -------------------------------- |
 | `0` linux · `1` darwin · `2` win32 | `0` x64 · `1` arm64 · `2` ia32 · `3` arm | `0` glibc · `1` musl · `255` n/a |
 
 ## Decode contract

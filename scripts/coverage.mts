@@ -16,21 +16,43 @@
 // (abitious-decmpfs), the stub trampoline, the producer library/bin, and the `abi`
 // CLI. Mirrors decmpfs's runner; the only shape change is workspace-wide scope.
 
-import {
-  execFileSync,
-  type ExecFileSyncOptionsWithStringEncoding,
-} from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { getDefaultLogger } from '@socketsecurity/lib-stable/logger/default'
+import { spawnSync } from '@socketsecurity/lib-stable/process/spawn/child'
+import type { SpawnSyncOptions } from '@socketsecurity/lib-stable/process/spawn/types'
+
+const logger = getDefaultLogger()
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
+function runSync(
+  command: string,
+  args: readonly string[],
+  options: SpawnSyncOptions,
+): string {
+  const result = spawnSync(command, args, options)
+  if (result.error) {
+    throw result.error
+  }
+  if (result.status !== 0) {
+    const stderr =
+      typeof result.stderr === 'string'
+        ? result.stderr
+        : result.stderr.toString()
+    throw new Error(stderr || `${command} exited ${result.status}`)
+  }
+  return typeof result.stdout === 'string'
+    ? result.stdout
+    : result.stdout.toString()
+}
+
 function fail(what: string, fix: string): never {
-  console.error(`coverage: ${what}`)
-  console.error(`  fix: ${fix}`)
+  logger.fail(`coverage: ${what}`)
+  logger.fail(`  fix: ${fix}`)
   process.exit(1)
 }
 
@@ -39,7 +61,7 @@ function fail(what: string, fix: string): never {
 function resolveNightly(): string {
   let list = ''
   try {
-    list = execFileSync('rustup', ['toolchain', 'list'], { encoding: 'utf8' })
+    list = runSync('rustup', ['toolchain', 'list'], { encoding: 'utf8' })
   } catch {
     fail(
       'rustup not found — coverage needs a rustup-managed nightly toolchain',
@@ -55,7 +77,7 @@ function resolveNightly(): string {
   )
   const dated = names
     .filter(name => /^nightly-\d{4}-\d\d-\d\d/.test(name))
-    .sort()
+    .toSorted()
     .at(-1)
   const toolchain = rolling ?? dated
   if (!toolchain) {
@@ -79,7 +101,7 @@ if (!existsSync(rustc) || !existsSync(cargo)) {
 }
 
 // The feature gate rejects a stable channel — confirm we really have nightly.
-const version = execFileSync(rustc, ['--version'], { encoding: 'utf8' }).trim()
+const version = runSync(rustc, ['--version'], { encoding: 'utf8' }).trim()
 if (!version.includes('nightly')) {
   fail(
     `resolved rustc is not nightly (${version}) — coverage_attribute is nightly-only`,
@@ -120,8 +142,11 @@ const covEnv = {
 // Run cargo-llvm-cov over the whole workspace. `-- --include-ignored` runs the
 // ignored perf/bomb probes too, so their bodies count and the number is production
 // coverage, not probe-body-deflated.
-function runCargoLlvmCov(extraArgs: string[], capture: boolean): string {
-  const options: ExecFileSyncOptionsWithStringEncoding = {
+function runCargoLlvmCov(
+  extraArgs: string[],
+  { capture }: { capture: boolean },
+): string {
+  const options: SpawnSyncOptions = {
     cwd: root,
     encoding: 'utf8',
     // Capture stdout (the JSON summary) for --badge; otherwise stream everything through.
@@ -129,7 +154,7 @@ function runCargoLlvmCov(extraArgs: string[], capture: boolean): string {
     env: covEnv,
     maxBuffer: 64 * 1024 * 1024,
   }
-  return execFileSync(
+  return runSync(
     cargo,
     ['llvm-cov', '--workspace', ...extraArgs, '--', '--include-ignored'],
     options,
@@ -140,10 +165,18 @@ function runCargoLlvmCov(extraArgs: string[], capture: boolean): string {
 // (decmpfs/assets/coverage-score.svg). Label box is the fixed "coverage" (60px);
 // the value box grows with the digit count. Color ramps by percent.
 function badgeColor(pct: number): string {
-  if (pct >= 90) return '#4c1'
-  if (pct >= 80) return '#97ca00'
-  if (pct >= 70) return '#a4a61d'
-  if (pct >= 60) return '#dfb317'
+  if (pct >= 90) {
+    return '#4c1'
+  }
+  if (pct >= 80) {
+    return '#97ca00'
+  }
+  if (pct >= 70) {
+    return '#a4a61d'
+  }
+  if (pct >= 60) {
+    return '#dfb317'
+  }
   return '#e05d44'
 }
 
@@ -177,7 +210,7 @@ function renderBadge(pct: number): string {
 `
 }
 
-console.log(`coverage: nightly=${toolchain}`)
+logger.log(`coverage: nightly=${toolchain}`)
 
 if (process.argv.includes('--badge')) {
   // Capture a JSON summary, extract the TOTAL line coverage, and regenerate the
@@ -185,10 +218,9 @@ if (process.argv.includes('--badge')) {
   const passthrough = process.argv.slice(2).filter(arg => arg !== '--badge')
   let json = ''
   try {
-    json = runCargoLlvmCov(
-      ['--json', '--summary-only', ...passthrough],
-      /* capture */ true,
-    )
+    json = runCargoLlvmCov(['--json', '--summary-only', ...passthrough], {
+      capture: true,
+    })
   } catch {
     process.exit(1)
   }
@@ -208,12 +240,12 @@ if (process.argv.includes('--badge')) {
   // The badge reports REGION coverage — the conservative, fleet-canonical number
   // (mirrors decmpfs/assets/coverage-score.svg). Line coverage is logged alongside.
   writeFileSync(out, renderBadge(regionPct))
-  console.log(
+  logger.log(
     `coverage: region=${totals.regions.percent.toFixed(2)}% line=${totals.lines.percent.toFixed(2)}% -> ${out} (badge ${regionPct}%)`,
   )
 } else {
   try {
-    runCargoLlvmCov(process.argv.slice(2), /* capture */ false)
+    runCargoLlvmCov(process.argv.slice(2), { capture: false })
   } catch {
     process.exit(1)
   }

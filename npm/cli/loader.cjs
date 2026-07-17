@@ -19,10 +19,11 @@ const SUPPORTED = DATA.targets
 const STUB_NODE = DATA.stubNode
 
 /**
- * The napi-rs addon abi suffix for a host: glibc Linux `-gnu`, musl Linux `-musl`,
- * Windows `-msvc`, macOS none. musl-vs-glibc is detected exactly as napi-rs does —
- * `process.report.getReport().header.glibcVersionRuntime` is present on glibc and
- * absent on musl. `report` is injected so the branch is testable off-host.
+ * The napi-rs addon abi suffix for a host: glibc Linux `-gnu`, musl Linux
+ * `-musl`, Windows `-msvc`, macOS none. musl-vs-glibc is detected exactly as
+ * napi-rs does — `process.report.getReport().header.glibcVersionRuntime` is
+ * present on glibc and absent on musl. `report` is injected so the branch is
+ * testable off-host.
  */
 function abiSuffix(platform, report) {
   if (platform === 'win32') {
@@ -30,31 +31,61 @@ function abiSuffix(platform, report) {
   }
   if (platform === 'linux') {
     const glibc =
-      report && typeof report === 'object' ? report.header?.glibcVersionRuntime : undefined
+      report && typeof report === 'object'
+        ? report.header?.glibcVersionRuntime
+        : undefined
     return glibc ? '-gnu' : '-musl'
   }
   return ''
 }
 
 /**
- * Map a host (`{ platform, arch, report }`, `process`-shaped) to its target triple
- * `@abitious/<triple>`: `<platform>-<arch>[-<abi>]`.
+ * Map a host (`{ platform, arch, report }`, `process`-shaped) to its target
+ * triple `@abitious/<triple>`: `<platform>-<arch>[-<abi>]`.
  */
 function hostTriple({ platform, arch, report }) {
   return `${platform}-${arch}${abiSuffix(platform, report)}`
 }
 
 /**
- * Resolve the installed platform package for a host and return the paths it carries.
+ * Resolve using the real process + require.resolve (npm/cli/index.cjs entry).
+ */
+function loadPlatform() {
+  const { createRequire } = require('node:module')
+  const req = createRequire(__filename)
+  const report =
+    typeof process.report?.getReport === 'function'
+      ? process.report.getReport()
+      : undefined
+  return resolvePlatform({
+    platform: process.platform,
+    arch: process.arch,
+    report,
+    resolve: request => req.resolve(request),
+  })
+}
+
+/**
+ * Resolve the installed platform package for a host and return the paths it
+ * carries.
  *
  * @param {object} opts
- * @param {string} opts.platform  process.platform
- * @param {string} opts.arch      process.arch
- * @param {object} [opts.report]  process.report.getReport() (for glibc detection)
- * @param {(request: string) => string} opts.resolve  resolves `<pkg>/package.json`
+ * @param {string} opts.platform Process.platform.
+ * @param {string} opts.arch Process.arch.
+ * @param {object} [opts.report] Process.report.getReport() (for glibc
+ *   detection)
+ * @param {(request: string) => string} opts.resolve Resolves `<pkg>/package.json`
  *   to an absolute path (throws when the optional dep is not installed).
- * @returns {{ triple: string, pkg: string, dir: string, stub: string, bin: string }}
- * @throws {Error} an actionable error naming the host triple, the package to install,
+ *
+ * @returns {{
+ *   triple: string
+ *   pkg: string
+ *   dir: string
+ *   stub: string
+ *   bin: string
+ * }}
+ *
+ * @throws {Error} An actionable error naming the host triple, the package to install,
  *   and what was tried, when no matching optional dependency is present.
  */
 function resolvePlatform({ platform, arch, report, resolve }) {
@@ -94,18 +125,11 @@ function resolvePlatform({ platform, arch, report, resolve }) {
   }
 }
 
-/** Resolve using the real process + require.resolve (npm/cli/index.cjs entry). */
-function loadPlatform() {
-  const { createRequire } = require('node:module')
-  const req = createRequire(__filename)
-  const report =
-    typeof process.report?.getReport === 'function' ? process.report.getReport() : undefined
-  return resolvePlatform({
-    platform: process.platform,
-    arch: process.arch,
-    report,
-    resolve: request => req.resolve(request),
-  })
+module.exports = {
+  abiSuffix,
+  hostTriple,
+  resolvePlatform,
+  loadPlatform,
+  SUPPORTED,
+  STUB_NODE,
 }
-
-module.exports = { abiSuffix, hostTriple, resolvePlatform, loadPlatform, SUPPORTED, STUB_NODE }

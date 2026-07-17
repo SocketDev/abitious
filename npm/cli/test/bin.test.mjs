@@ -5,13 +5,21 @@
 // native binary is needed. Run: node --test.
 
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
-import fs from 'node:fs'
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  writeFileSync,
+} from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+
+import { safeDeleteSync } from '@socketsecurity/lib-stable/fs/safe'
+import { spawnSync } from '@socketsecurity/lib-stable/process/spawn/child'
 
 const require = createRequire(import.meta.url)
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -20,8 +28,14 @@ const loader = require('../loader.cjs')
 
 // This host's triple + bin name, computed exactly as loader.loadPlatform() would.
 const report =
-  typeof process.report?.getReport === 'function' ? process.report.getReport() : undefined
-const TRIPLE = loader.hostTriple({ platform: process.platform, arch: process.arch, report })
+  typeof process.report?.getReport === 'function'
+    ? process.report.getReport()
+    : undefined
+const TRIPLE = loader.hostTriple({
+  platform: process.platform,
+  arch: process.arch,
+  report,
+})
 const BIN_NAME = loader.SUPPORTED.find(t => t.triple === TRIPLE).bin
 
 // bin.cjs execs a real subprocess; on win32 the fake `abi.exe` cannot be a shell script, so
@@ -34,38 +48,41 @@ const unixOnly = {
 const sandboxes = []
 
 /**
- * A throwaway copy of the cli entry files (+ optionally a fake @abitious/<triple> package
- * carrying a fake `abi`) under a fresh mkdtemp dir. `bin: null` omits the `abi` file (to
- * drive the spawn-error arm); a string is written as the executable `abi` script.
+ * A throwaway copy of the cli entry files (+ optionally a fake.
+ *
+ * @abitious/<triple> package carrying a fake `abi`) under a fresh mkdtemp dir.
+ * `bin: null` omits the `abi` file (to drive the spawn-error arm); a string is
+ * written as the executable `abi` script.
  */
 function makeSandbox({ withPackage = true, bin } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'abitious-bin-test-'))
+  const root = mkdtempSync(path.join(os.tmpdir(), 'abitious-bin-test-'))
   sandboxes.push(root)
   for (const f of ['bin.cjs', 'loader.cjs', 'targets.generated.json']) {
-    fs.copyFileSync(path.join(cliDir, f), path.join(root, f))
+    copyFileSync(path.join(cliDir, f), path.join(root, f))
   }
   if (withPackage) {
     const pkgDir = path.join(root, 'node_modules', '@abitious', TRIPLE)
-    fs.mkdirSync(pkgDir, { recursive: true })
-    fs.writeFileSync(
+    mkdirSync(pkgDir, { recursive: true })
+    writeFileSync(
       path.join(pkgDir, 'package.json'),
       JSON.stringify({ name: `@abitious/${TRIPLE}`, version: '0.0.0' }),
     )
-    fs.writeFileSync(path.join(pkgDir, 'stub.node'), '')
+    writeFileSync(path.join(pkgDir, 'stub.node'), '')
     if (bin !== null) {
       const binPath = path.join(pkgDir, BIN_NAME)
-      fs.writeFileSync(binPath, bin ?? '#!/bin/sh\nexit 0\n')
-      fs.chmodSync(binPath, 0o755)
+      writeFileSync(binPath, bin ?? '#!/bin/sh\nexit 0\n')
+      chmodSync(binPath, 0o755)
     }
   }
   return root
 }
 
 test.after(() => {
-  for (const root of sandboxes) {
+  for (let i = 0, { length } = sandboxes; i < length; i += 1) {
+    const root = sandboxes[i]
     // Exact, test-created mkdtemp path only — never a glob or an outside path.
     if (root.startsWith(os.tmpdir())) {
-      fs.rmSync(root, { recursive: true, force: true })
+      safeDeleteSync(root)
     }
   }
 })
@@ -76,19 +93,24 @@ function runBin(root, args = []) {
   })
 }
 
-test('execs the resolved abi and forwards argv + a numeric exit code', unixOnly, () => {
-  // A fake `abi` that echoes its argv and exits 7; bin.cjs must forward both.
-  const root = makeSandbox({ bin: '#!/bin/sh\necho "args:$*"\nexit 7\n' })
-  const r = runBin(root, ['inspect', 'x.node'])
-  assert.equal(r.status, 7, `exit code forwarded; stderr=${r.stderr}`)
-  assert.match(r.stdout, /args:inspect x\.node/)
-})
+test(
+  'execs the resolved abi and forwards argv + a numeric exit code',
+  unixOnly,
+  () => {
+    // A fake `abi` that echoes its argv and exits 7; bin.cjs must forward both.
+    const root = makeSandbox({ bin: '#!/bin/sh\necho "args:$*"\nexit 7\n' })
+    const r = runBin(root, ['inspect', 'x.node'])
+    assert.equal(r.status, 7, `exit code forwarded; stderr=${r.stderr}`)
+    assert.match(r.stdout, /args:inspect x\.node/)
+  },
+)
 
 test(
   'exits 1 with an actionable error when the abi binary is missing (spawn error)',
   unixOnly,
   () => {
     // Package resolves, but its `abi` file is absent → spawnSync sets result.error (ENOENT).
+    // oxlint-disable-next-line socket/prefer-undefined-over-null -- `null` is this fixture's explicit external-API sentinel for an omitted binary.
     const root = makeSandbox({ bin: null })
     const r = runBin(root, ['build'])
     assert.equal(r.status, 1)
@@ -102,7 +124,11 @@ test('maps a signal death (result.status === null) to exit 1', unixOnly, () => {
   // bin.cjs's `result.status === null ? 1 : result.status` path yields exit 1.
   const root = makeSandbox({ bin: '#!/bin/sh\nkill -9 $$\n' })
   const r = runBin(root)
-  assert.equal(r.status, 1, `signal death maps to 1; signal=${r.signal} stderr=${r.stderr}`)
+  assert.equal(
+    r.status,
+    1,
+    `signal death maps to 1; signal=${r.signal} stderr=${r.stderr}`,
+  )
 })
 
 test('exits 1 with the loader error when no platform package is installed', () => {

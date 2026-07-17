@@ -2,18 +2,15 @@
   "name": "@abitious/cli",
   "version": "0.1.0",
   "description": "Ship Node.js native addons as compressed, self-loading hybrid .node files. The `abi` build CLI + the platform loader that resolves the prebuilt stub and host producer for your platform.",
-  "license": "MIT",
-  "repository": "https://github.com/SocketDev/abitious",
   "keywords": [
-    "napi",
     "addon",
+    "cli",
     "compression",
     "decmpfs",
-    "cli"
+    "napi"
   ],
-  "type": "commonjs",
-  "main": "index.cjs",
-  "types": "index.d.cts",
+  "license": "MIT",
+  "repository": "https://github.com/SocketDev/abitious",
   "bin": {
     "abi": "bin.cjs"
   },
@@ -24,9 +21,9 @@
     "loader.cjs",
     "targets.generated.json"
   ],
-  "engines": {
-    "node": ">=18"
-  },
+  "type": "commonjs",
+  "main": "index.cjs",
+  "types": "index.d.cts",
   "publishConfig": {
     "access": "public",
     "provenance": true,
@@ -41,5 +38,8 @@
     "@abitious/linux-arm64-musl": "0.1.0",
     "@abitious/win32-x64-msvc": "0.1.0",
     "@abitious/win32-arm64-msvc": "0.1.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

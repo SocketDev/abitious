@@ -52,7 +52,7 @@ section format is the frozen compatibility contract.
   so the bin and the `abi` CLI share one compress/inject/re-sign/atomic-write path.
 - **`abitious`** — the `abi` build CLI (`[[bin]] name = "abi"`):
   `abi build [--compress] [--compress-level N] [--release] [--stub <path>] [-p <package>]
-  [--out <path>]`. Runs `cargo build` for the HOST triple, resolves the package's `cdylib`
+[--out <path>]`. Runs `cargo build` for the HOST triple, resolves the package's `cdylib`
   artifact from `cargo metadata` (porting napi-rs `build.ts`'s cdylib resolution), copies
   it to `<name>.node` (or `--out`), and with `--compress` compresses it into a self-loading
   hybrid via `abitious_producer::compress_node`, printing the JSON receipt; otherwise
@@ -89,7 +89,7 @@ section format is the frozen compatibility contract.
   decompresses on read). Validated end-to-end on APFS
   (`crates/abitious-producer/tests/install_e2e.rs`): a real produced hybrid installs to
   a store entry whose on-disk allocation strictly shrinks and which `node
-  process.dlopen` loads with the addon's `napi_register_module_v1` running.
+process.dlopen` loads with the addon's `napi_register_module_v1` running.
 - **out of scope (M5)** — the reflink `copy_file` / `try_clone_file` / `CopyOutcome`
   and `rm` / `RmOptions` surfaces of `decmpfs` are intentionally NOT ported; they are
   PM-link-step / CLI features outside the abitious install-compress path.
@@ -117,7 +117,7 @@ section format is the frozen compatibility contract.
   workflow-dispatch pipelines that publish with NO long-lived registry-token secret:
   `cargo-publish.yml` publishes all four crates to crates.io via Trusted Publishing
   (OIDC, `id-token: write`) with a build-provenance attestation, letting `cargo publish
-  --workspace` compute the topological order (`abitious-decmpfs` → `abitious-producer` /
+--workspace` compute the topological order (`abitious-decmpfs` → `abitious-producer` /
   `abitious-stub` → `abitious`); `npm-publish.yml` builds each triple from the
   `targets.mts` matrix and publishes the 8 `@abitious/<triple>` packages then
   `@abitious/cli` with npm provenance via OIDC. Both default to a dry run and gate the real
@@ -151,4 +151,4 @@ section format is the frozen compatibility contract.
   build. The producer-only `resign` → `apple-codesign` (reqwest/tokio/hyper) chain is
   macOS-target-gated + off by default, so it never reaches the shipped tree. It runs
   alongside a zizmor workflow audit and the fmt / clippy / `cargo test --workspace
-  --locked` matrix, with every action SHA-pinned.
+--locked` matrix, with every action SHA-pinned.

@@ -24,12 +24,12 @@ whole ecosystem interoperates.
 
 ## Layout
 
-| crate | what it does |
-| --- | --- |
-| `abitious-decmpfs` | the frozen section ABI (build / parse / locate a pressed-data section), the runtime **self-extract** seam (`selfextract`), and a byte-faithful port of the `decmpfs` **FS-compression engine** (`fscompress`: APFS decmpfs / btrfs / NTFS) + the `install_hybrid` install bridge |
-| `abitious-stub` | the generic self-extracting **trampoline** cdylib: one prebuilt image per platform whose `napi_register_module_v1` recovers the real addon from its own section and forwards registration |
-| `abitious-producer` | the host build-time **producer** (`compress_node` + bin): compress a built `.node` into a pressed-data section, inject + ad-hoc re-sign it into the stub, write a hybrid |
-| `abitious` | the **`abi` CLI**: `abi build [--compress]` (cargo-build a napi cdylib, wrap it) and `abi inspect` (report / extract a hybrid's section) |
+| crate               | what it does                                                                                                                                                                                                                                                                     |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `abitious-decmpfs`  | the frozen section ABI (build / parse / locate a pressed-data section), the runtime **self-extract** seam (`selfextract`), and a byte-faithful port of the `decmpfs` **FS-compression engine** (`fscompress`: APFS decmpfs / btrfs / NTFS) + the `install_hybrid` install bridge |
+| `abitious-stub`     | the generic self-extracting **trampoline** cdylib: one prebuilt image per platform whose `napi_register_module_v1` recovers the real addon from its own section and forwards registration                                                                                        |
+| `abitious-producer` | the host build-time **producer** (`compress_node` + bin): compress a built `.node` into a pressed-data section, inject + ad-hoc re-sign it into the stub, write a hybrid                                                                                                         |
+| `abitious`          | the **`abi` CLI**: `abi build [--compress]` (cargo-build a napi cdylib, wrap it) and `abi inspect` (report / extract a hybrid's section)                                                                                                                                         |
 
 ## The `abi` CLI
 

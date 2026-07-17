@@ -1,0 +1,3 @@
+# Generated package manifests are byte-owned by scripts/gen-packages.mts.
+# Formatting them after generation makes `gen:check` report false drift.
+**/npm/**/package.json

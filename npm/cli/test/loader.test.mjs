@@ -10,7 +10,8 @@ import { test } from 'node:test'
 
 const require = createRequire(import.meta.url)
 const loader = require('../loader.cjs')
-const { abiSuffix, hostTriple, loadPlatform, resolvePlatform, SUPPORTED } = loader
+const { abiSuffix, hostTriple, loadPlatform, resolvePlatform, SUPPORTED } =
+  loader
 
 // A glibc host reports a runtime version; a musl host does not.
 const GLIBC = { header: { glibcVersionRuntime: '2.39' } }
@@ -25,14 +26,32 @@ test('abiSuffix covers every host abi', () => {
 })
 
 test('hostTriple maps each host to its @abitious/<triple>', () => {
-  assert.equal(hostTriple({ platform: 'darwin', arch: 'arm64' }), 'darwin-arm64')
+  assert.equal(
+    hostTriple({ platform: 'darwin', arch: 'arm64' }),
+    'darwin-arm64',
+  )
   assert.equal(hostTriple({ platform: 'darwin', arch: 'x64' }), 'darwin-x64')
   assert.equal(hostTriple({ platform: 'win32', arch: 'x64' }), 'win32-x64-msvc')
-  assert.equal(hostTriple({ platform: 'win32', arch: 'arm64' }), 'win32-arm64-msvc')
-  assert.equal(hostTriple({ platform: 'linux', arch: 'x64', report: GLIBC }), 'linux-x64-gnu')
-  assert.equal(hostTriple({ platform: 'linux', arch: 'arm64', report: GLIBC }), 'linux-arm64-gnu')
-  assert.equal(hostTriple({ platform: 'linux', arch: 'x64', report: MUSL }), 'linux-x64-musl')
-  assert.equal(hostTriple({ platform: 'linux', arch: 'arm64', report: MUSL }), 'linux-arm64-musl')
+  assert.equal(
+    hostTriple({ platform: 'win32', arch: 'arm64' }),
+    'win32-arm64-msvc',
+  )
+  assert.equal(
+    hostTriple({ platform: 'linux', arch: 'x64', report: GLIBC }),
+    'linux-x64-gnu',
+  )
+  assert.equal(
+    hostTriple({ platform: 'linux', arch: 'arm64', report: GLIBC }),
+    'linux-arm64-gnu',
+  )
+  assert.equal(
+    hostTriple({ platform: 'linux', arch: 'x64', report: MUSL }),
+    'linux-x64-musl',
+  )
+  assert.equal(
+    hostTriple({ platform: 'linux', arch: 'arm64', report: MUSL }),
+    'linux-arm64-musl',
+  )
 })
 
 test('every hostTriple output is a supported target (source-of-truth coverage)', () => {
@@ -48,13 +67,20 @@ test('every hostTriple output is a supported target (source-of-truth coverage)',
     { platform: 'linux', arch: 'arm64', report: MUSL },
   ]
   const triples = new Set(SUPPORTED.map(t => t.triple))
-  for (const host of hosts) {
+  for (let i = 0, { length } = hosts; i < length; i += 1) {
+    const host = hosts[i]
     assert.ok(triples.has(hostTriple(host)), `unsupported: ${hostTriple(host)}`)
   }
 })
 
 test('resolvePlatform returns the stub + bin paths from the resolved package dir', () => {
-  const fakeManifest = path.join('/fake', 'node_modules', '@abitious', 'darwin-arm64', 'package.json')
+  const fakeManifest = path.join(
+    '/fake',
+    'node_modules',
+    '@abitious',
+    'darwin-arm64',
+    'package.json',
+  )
   const seen = []
   const resolved = resolvePlatform({
     platform: 'darwin',
@@ -73,7 +99,12 @@ test('resolvePlatform returns the stub + bin paths from the resolved package dir
 })
 
 test('resolvePlatform names the .exe bin on Windows', () => {
-  const fakeManifest = path.join('/fake', '@abitious', 'win32-x64-msvc', 'package.json')
+  const fakeManifest = path.join(
+    '/fake',
+    '@abitious',
+    'win32-x64-msvc',
+    'package.json',
+  )
   const resolved = resolvePlatform({
     platform: 'win32',
     arch: 'x64',
@@ -104,7 +135,12 @@ test('resolvePlatform throws an actionable error when the optional dep is missin
 
 test('resolvePlatform rejects an unsupported host, listing what is supported', () => {
   assert.throws(
-    () => resolvePlatform({ platform: 'freebsd', arch: 'x64', resolve: () => '/nope' }),
+    () =>
+      resolvePlatform({
+        platform: 'freebsd',
+        arch: 'x64',
+        resolve: () => '/nope',
+      }),
     err => {
       assert.match(err.message, /unsupported platform freebsd-x64/)
       assert.match(err.message, /darwin-arm64/)
@@ -120,7 +156,9 @@ test('loadPlatform wires the real process (process.report) + require.resolve', (
   // report wiring + host-triple computation have run. If a host dep ever is present, it
   // returns coherent paths instead; assert whichever outcome occurs.
   const hostReport =
-    typeof process.report?.getReport === 'function' ? process.report.getReport() : undefined
+    typeof process.report?.getReport === 'function'
+      ? process.report.getReport()
+      : undefined
   const expected = hostTriple({
     platform: process.platform,
     arch: process.arch,

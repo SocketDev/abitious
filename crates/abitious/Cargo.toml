@@ -17,8 +17,8 @@ path = "src/main.rs"
 # `coverage` / `coverage_nightly` are set by cargo-llvm-cov (nightly) to gate the
 # `#[coverage(off)]` test-module markers; declare them so stable builds don't warn.
 unexpected_cfgs = { level = "warn", check-cfg = [
-    'cfg(coverage)',
-    'cfg(coverage_nightly)',
+  'cfg(coverage)',
+  'cfg(coverage_nightly)',
 ] }
 
 # The CLI is a HOST build-time tool. It drives the shared `compress_node` library
