@@ -78,6 +78,8 @@ overrides:
 #   npm/<triple>    → @abitious/<triple> (per-platform prebuilt stub + host producer)
 packages:
   - npm/*
+  - '.config/fleet/oxlint-plugin'
+  - '.config/fleet/oxlint-plugin/fleet/*'
 trustPolicy: no-downgrade
 minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
