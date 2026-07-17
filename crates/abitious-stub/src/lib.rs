@@ -48,11 +48,11 @@ type RegisterFn = unsafe extern "C" fn(NapiEnv, NapiValue) -> NapiValue;
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[no_mangle]
 pub unsafe extern "C" fn napi_register_module_v1(env: NapiEnv, exports: NapiValue) -> NapiValue {
-    match trampoline(env, exports) {
-        Some(real_exports) => real_exports,
-        // Fail-soft: hand back the exports we were given rather than crash the host.
-        None => exports,
-    }
+  match trampoline(env, exports) {
+    Some(real_exports) => real_exports,
+    // Fail-soft: hand back the exports we were given rather than crash the host.
+    None => exports,
+  }
 }
 
 /// The self-extract → dlopen → forward path. Any `None` short-circuits to the fail-soft
@@ -65,13 +65,13 @@ pub unsafe extern "C" fn napi_register_module_v1(env: NapiEnv, exports: NapiValu
 // (e2e-proven); the fail-soft `?` short-circuits are guarded by the in-module tests.
 #[cfg_attr(coverage_nightly, coverage(off))]
 unsafe fn trampoline(env: NapiEnv, exports: NapiValue) -> Option<NapiValue> {
-    let me = self_path()?;
-    // Section-based extraction (M1's unwrap_if_hybrid), NOT a footer: resolve_self returns
-    // the path of the raw addon written to the content-addressed cache. `None` = this file
-    // is not a hybrid (or an I/O error) → fail-soft.
-    let loadable = resolve_self(&me)?;
-    let register = load_register(&loadable)?;
-    Some(register(env, exports))
+  let me = self_path()?;
+  // Section-based extraction (M1's unwrap_if_hybrid), NOT a footer: resolve_self returns
+  // the path of the raw addon written to the content-addressed cache. `None` = this file
+  // is not a hybrid (or an I/O error) → fail-soft.
+  let loadable = resolve_self(&me)?;
+  let register = load_register(&loadable)?;
+  Some(register(env, exports))
 }
 
 /// `dlopen` the extracted addon and resolve its `napi_register_module_v1`.
@@ -89,18 +89,18 @@ unsafe fn trampoline(env: NapiEnv, exports: NapiValue) -> Option<NapiValue> {
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[cfg(unix)]
 unsafe fn load_register(path: &Path) -> Option<RegisterFn> {
-    use std::os::unix::ffi::OsStrExt;
+  use std::os::unix::ffi::OsStrExt;
 
-    let cpath = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
-    let handle = libc::dlopen(cpath.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL);
-    if handle.is_null() {
-        return None;
-    }
-    let sym = libc::dlsym(handle, c"napi_register_module_v1".as_ptr());
-    if sym.is_null() {
-        return None;
-    }
-    Some(std::mem::transmute::<*mut c_void, RegisterFn>(sym))
+  let cpath = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+  let handle = libc::dlopen(cpath.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL);
+  if handle.is_null() {
+    return None;
+  }
+  let sym = libc::dlsym(handle, c"napi_register_module_v1".as_ptr());
+  if sym.is_null() {
+    return None;
+  }
+  Some(std::mem::transmute::<*mut c_void, RegisterFn>(sym))
 }
 
 /// Windows: `LoadLibraryW` + `GetProcAddress`. Best-effort for M3 (darwin-arm64 is the
@@ -114,66 +114,66 @@ unsafe fn load_register(path: &Path) -> Option<RegisterFn> {
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[cfg(windows)]
 unsafe fn load_register(path: &Path) -> Option<RegisterFn> {
-    use std::os::windows::ffi::OsStrExt;
+  use std::os::windows::ffi::OsStrExt;
 
-    use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+  use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 
-    let wide: Vec<u16> = path
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    let module = LoadLibraryW(wide.as_ptr());
-    if module.is_null() {
-        return None;
-    }
-    let proc = GetProcAddress(module, c"napi_register_module_v1".as_ptr().cast())?;
-    Some(std::mem::transmute::<
-        unsafe extern "system" fn() -> isize,
-        RegisterFn,
-    >(proc))
+  let wide: Vec<u16> = path
+    .as_os_str()
+    .encode_wide()
+    .chain(std::iter::once(0))
+    .collect();
+  let module = LoadLibraryW(wide.as_ptr());
+  if module.is_null() {
+    return None;
+  }
+  let proc = GetProcAddress(module, c"napi_register_module_v1".as_ptr().cast())?;
+  Some(std::mem::transmute::<
+    unsafe extern "system" fn() -> isize,
+    RegisterFn,
+  >(proc))
 }
 
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn register_is_fail_soft_when_self_is_not_a_hybrid() {
-        // In the test binary `self_path()` resolves to this (non-hybrid) executable, so
-        // `resolve_self` returns None and the trampoline short-circuits: the entry hands back
-        // the exact `exports` pointer it was given — fail-soft, never a crash on the host.
-        let exports = 0xABCD_1234_usize as NapiValue;
-        let got = unsafe { napi_register_module_v1(std::ptr::null_mut(), exports) };
-        assert_eq!(
-            got, exports,
-            "fail-soft returns the given exports unchanged"
-        );
-    }
+  #[test]
+  fn register_is_fail_soft_when_self_is_not_a_hybrid() {
+    // In the test binary `self_path()` resolves to this (non-hybrid) executable, so
+    // `resolve_self` returns None and the trampoline short-circuits: the entry hands back
+    // the exact `exports` pointer it was given — fail-soft, never a crash on the host.
+    let exports = 0xABCD_1234_usize as NapiValue;
+    let got = unsafe { napi_register_module_v1(std::ptr::null_mut(), exports) };
+    assert_eq!(
+      got, exports,
+      "fail-soft returns the given exports unchanged"
+    );
+  }
 
-    #[cfg(unix)]
-    #[test]
-    fn load_register_is_none_for_a_nonexistent_path() {
-        // dlopen of a path that does not exist → null handle → None (never a bogus transmute).
-        let got = unsafe { load_register(Path::new("/no/such/abitious-stub/addon.node")) };
-        assert!(got.is_none());
-    }
+  #[cfg(unix)]
+  #[test]
+  fn load_register_is_none_for_a_nonexistent_path() {
+    // dlopen of a path that does not exist → null handle → None (never a bogus transmute).
+    let got = unsafe { load_register(Path::new("/no/such/abitious-stub/addon.node")) };
+    assert!(got.is_none());
+  }
 
-    #[cfg(unix)]
-    #[test]
-    fn load_register_is_none_when_the_napi_symbol_is_absent() {
-        // A real, loadable system dylib that does NOT export napi_register_module_v1: dlopen
-        // succeeds but dlsym returns null → None. (macOS system libs load from the dyld cache
-        // even without an on-disk file, so dlopen-by-name still yields a handle.)
-        #[cfg(target_os = "macos")]
-        let lib = Path::new("/usr/lib/libSystem.B.dylib");
-        #[cfg(not(target_os = "macos"))]
-        let lib = Path::new("libc.so.6");
-        let got = unsafe { load_register(lib) };
-        assert!(
-            got.is_none(),
-            "a lib without the napi symbol resolves to None"
-        );
-    }
+  #[cfg(unix)]
+  #[test]
+  fn load_register_is_none_when_the_napi_symbol_is_absent() {
+    // A real, loadable system dylib that does NOT export napi_register_module_v1: dlopen
+    // succeeds but dlsym returns null → None. (macOS system libs load from the dyld cache
+    // even without an on-disk file, so dlopen-by-name still yields a handle.)
+    #[cfg(target_os = "macos")]
+    let lib = Path::new("/usr/lib/libSystem.B.dylib");
+    #[cfg(not(target_os = "macos"))]
+    let lib = Path::new("libc.so.6");
+    let got = unsafe { load_register(lib) };
+    assert!(
+      got.is_none(),
+      "a lib without the napi symbol resolves to None"
+    );
+  }
 }

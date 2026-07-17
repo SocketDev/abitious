@@ -19,11 +19,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { getDefaultLogger } from '@socketsecurity/lib-stable/logger/default'
-
 import { abiBin, STUB_NODE, stubArtifact, TARGETS } from './targets.mts'
-
-const logger = getDefaultLogger()
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(scriptsDir, '..')
@@ -192,22 +188,26 @@ function check(files: GenFile[]): number {
     }
   }
   if (drift.length) {
-    logger.fail('gen-packages --check: OUT OF SYNC with scripts/targets.mts:')
+    writeStderr('gen-packages --check: OUT OF SYNC with scripts/targets.mts:\n')
     for (let i = 0, { length } = drift; i < length; i += 1) {
       const driftPath = drift[i]!
-      logger.fail(`  • ${driftPath}`)
+      writeStderr(`  • ${driftPath}\n`)
     }
-    logger.fail(
-      'Fix: run `pnpm run gen` (node scripts/gen-packages.mts) and commit.',
+    writeStderr(
+      'Fix: run `pnpm run gen` (node scripts/gen-packages.mts) and commit.\n',
     )
     return 1
   }
-  logger.log(`gen-packages --check: in sync (${files.length} files).`)
+  writeStdout(`gen-packages --check: in sync (${files.length} files).\n`)
   return 0
 }
 
 function writeStdout(value: string): void {
   process.stdout.write(value)
+}
+
+function writeStderr(value: string): void {
+  process.stderr.write(value)
 }
 
 const mode = process.argv[2]
@@ -221,7 +221,7 @@ if (mode === '--print-matrix') {
   process.exit(check(planned()))
 } else {
   writeAll(planned())
-  logger.log(
-    `gen-packages: wrote ${planned().length} generated files + placeholder READMEs.`,
+  writeStdout(
+    `gen-packages: wrote ${planned().length} generated files + placeholder READMEs.\n`,
   )
 }

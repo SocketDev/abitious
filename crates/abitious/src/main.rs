@@ -37,18 +37,18 @@ use std::process::ExitCode;
 use crate::args::Command;
 
 fn main() -> ExitCode {
-    let cwd = current_working_dir();
-    match run(
-        std::env::args().skip(1),
-        &cwd,
-        &mut std::io::stdout().lock(),
-    ) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(message) => {
-            eprintln!("{message}");
-            ExitCode::FAILURE
-        }
+  let cwd = current_working_dir();
+  match run(
+    std::env::args().skip(1),
+    &cwd,
+    &mut std::io::stdout().lock(),
+  ) {
+    Ok(()) => ExitCode::SUCCESS,
+    Err(message) => {
+      eprintln!("{message}");
+      ExitCode::FAILURE
     }
+  }
 }
 
 /// Parse `argv` and dispatch to the subcommand, writing success output (usage / the build
@@ -58,22 +58,22 @@ fn main() -> ExitCode {
 /// behavior + exit codes. `inspect` streams RAW addon bytes and self-prints to stdout, so it
 /// writes there directly rather than through `out`.
 fn run<W: Write>(
-    argv: impl IntoIterator<Item = String>,
-    cwd: &Path,
-    out: &mut W,
+  argv: impl IntoIterator<Item = String>,
+  cwd: &Path,
+  out: &mut W,
 ) -> Result<(), String> {
-    match args::parse(argv)? {
-        Command::Help => {
-            let _ = writeln!(out, "usage: {}", args::USAGE);
-            Ok(())
-        }
-        Command::Build(build_args) => {
-            let receipt = build::run(&build_args, cwd)?;
-            let _ = writeln!(out, "{receipt}");
-            Ok(())
-        }
-        Command::Inspect(inspect_args) => inspect::run(&inspect_args),
+  match args::parse(argv)? {
+    Command::Help => {
+      let _ = writeln!(out, "usage: {}", args::USAGE);
+      Ok(())
     }
+    Command::Build(build_args) => {
+      let receipt = build::run(&build_args, cwd)?;
+      let _ = writeln!(out, "{receipt}");
+      Ok(())
+    }
+    Command::Inspect(inspect_args) => inspect::run(&inspect_args),
+  }
 }
 
 /// The process working directory, or — on the (in-process-unreachable) failure — a LOUD
@@ -82,82 +82,82 @@ fn run<W: Write>(
 /// is defensive; keeping it out of `run` leaves `run`'s dispatch fully unit-testable.
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn current_working_dir() -> PathBuf {
-    match std::env::current_dir() {
-        Ok(cwd) => cwd,
-        Err(e) => {
-            eprintln!("abi: cannot determine the current directory.\n  Saw: {e}");
-            std::process::exit(1);
-        }
+  match std::env::current_dir() {
+    Ok(cwd) => cwd,
+    Err(e) => {
+      eprintln!("abi: cannot determine the current directory.\n  Saw: {e}");
+      std::process::exit(1);
     }
+  }
 }
 
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use super::*;
+  use super::*;
 
-    fn argv(parts: &[&str]) -> Vec<String> {
-        parts.iter().map(|s| s.to_string()).collect()
-    }
+  fn argv(parts: &[&str]) -> Vec<String> {
+    parts.iter().map(|s| s.to_string()).collect()
+  }
 
-    /// Run the dispatcher, capturing what it writes to `out` (usage / receipt).
-    fn run_capture(parts: &[&str], cwd: &Path) -> Result<String, String> {
-        let mut out = Vec::<u8>::new();
-        run(argv(parts), cwd, &mut out).map(|()| String::from_utf8(out).expect("utf8"))
-    }
+  /// Run the dispatcher, capturing what it writes to `out` (usage / receipt).
+  fn run_capture(parts: &[&str], cwd: &Path) -> Result<String, String> {
+    let mut out = Vec::<u8>::new();
+    run(argv(parts), cwd, &mut out).map(|()| String::from_utf8(out).expect("utf8"))
+  }
 
-    #[test]
-    fn help_writes_usage_to_the_writer() {
-        let cwd = std::env::temp_dir();
-        assert!(run_capture(&["--help"], &cwd)
-            .unwrap()
-            .contains("usage: abi build"));
-        assert!(run_capture(&["-h"], &cwd)
-            .unwrap()
-            .contains("usage: abi build"));
-        // Bare `abi` (no subcommand) also prints usage.
-        assert!(run_capture(&[], &cwd).unwrap().contains("usage: abi build"));
-    }
+  #[test]
+  fn help_writes_usage_to_the_writer() {
+    let cwd = std::env::temp_dir();
+    assert!(run_capture(&["--help"], &cwd)
+      .unwrap()
+      .contains("usage: abi build"));
+    assert!(run_capture(&["-h"], &cwd)
+      .unwrap()
+      .contains("usage: abi build"));
+    // Bare `abi` (no subcommand) also prints usage.
+    assert!(run_capture(&[], &cwd).unwrap().contains("usage: abi build"));
+  }
 
-    #[test]
-    fn a_parse_error_is_returned_as_a_loud_string() {
-        let err = run_capture(&["frobnicate"], &std::env::temp_dir()).unwrap_err();
-        assert!(err.contains("unknown subcommand"), "{err}");
-    }
+  #[test]
+  fn a_parse_error_is_returned_as_a_loud_string() {
+    let err = run_capture(&["frobnicate"], &std::env::temp_dir()).unwrap_err();
+    assert!(err.contains("unknown subcommand"), "{err}");
+  }
 
-    #[test]
-    fn a_build_error_propagates() {
-        // `--compress` with no `--stub`, from an isolated cwd with no node_modules/@abitious
-        // ancestry → build::run's stub resolution fails and run returns the LOUD error.
-        let dir = std::env::temp_dir().join(format!("abi-main-build-err-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let err = run_capture(&["build", "--compress"], &dir).unwrap_err();
-        assert!(
-            err.contains("could not auto-resolve a prebuilt stub"),
-            "{err}"
-        );
-        std::fs::remove_dir_all(&dir).ok();
-    }
+  #[test]
+  fn a_build_error_propagates() {
+    // `--compress` with no `--stub`, from an isolated cwd with no node_modules/@abitious
+    // ancestry → build::run's stub resolution fails and run returns the LOUD error.
+    let dir = std::env::temp_dir().join(format!("abi-main-build-err-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let err = run_capture(&["build", "--compress"], &dir).unwrap_err();
+    assert!(
+      err.contains("could not auto-resolve a prebuilt stub"),
+      "{err}"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+  }
 
-    #[test]
-    fn an_inspect_error_propagates() {
-        let err = run_capture(
-            &["inspect", "/no/such/abi-main/missing.node"],
-            &std::env::temp_dir(),
-        )
-        .unwrap_err();
-        assert!(err.contains("cannot read the .node file"), "{err}");
-    }
+  #[test]
+  fn an_inspect_error_propagates() {
+    let err = run_capture(
+      &["inspect", "/no/such/abi-main/missing.node"],
+      &std::env::temp_dir(),
+    )
+    .unwrap_err();
+    assert!(err.contains("cannot read the .node file"), "{err}");
+  }
 
-    #[test]
-    fn an_inspect_success_returns_ok() {
-        // A plain .node → inspect::run prints its report to stdout and returns Ok(()); the
-        // dispatcher maps that to Ok (the Inspect arm self-prints, bypassing `out` by design).
-        let dir = std::env::temp_dir().join(format!("abi-main-inspect-ok-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let plain = dir.join("plain.node");
-        std::fs::write(&plain, b"not a hybrid, just bytes").unwrap();
-        assert!(run_capture(&["inspect", plain.to_str().unwrap()], &dir).is_ok());
-        std::fs::remove_dir_all(&dir).ok();
-    }
+  #[test]
+  fn an_inspect_success_returns_ok() {
+    // A plain .node → inspect::run prints its report to stdout and returns Ok(()); the
+    // dispatcher maps that to Ok (the Inspect arm self-prints, bypassing `out` by design).
+    let dir = std::env::temp_dir().join(format!("abi-main-inspect-ok-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let plain = dir.join("plain.node");
+    std::fs::write(&plain, b"not a hybrid, just bytes").unwrap();
+    assert!(run_capture(&["inspect", plain.to_str().unwrap()], &dir).is_ok());
+    std::fs::remove_dir_all(&dir).ok();
+  }
 }

@@ -7,7 +7,7 @@
 //! requirement) whenever the TARGET is macOS. A no-op on every other target.
 
 fn main() {
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
-        println!("cargo:rustc-link-arg=-Wl,-headerpad,0x1000");
-    }
+  if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+    println!("cargo:rustc-link-arg=-Wl,-headerpad,0x1000");
+  }
 }
