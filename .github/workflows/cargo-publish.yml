@@ -1,0 +1,105 @@
+# cargo-publish — publish the abitious workspace crates to crates.io via Trusted
+# Publishing.
+#
+# INTERIM (self-contained) form: abitious is not yet fully fleet-onboarded (no
+# scripts/fleet engine), so this INLINES the verify → publish → attest flow
+# instead of calling `node scripts/fleet/cargo-publish.mts` (the fleet preset).
+# It mirrors envrypt's inlined cargo-publish.yml, extended from one crate to the
+# 4-crate workspace. Once abitious carries the fleet publish tier this collapses
+# to the engine call (template/presets/.github/workflows/cargo-publish.yml).
+#
+# Default flow: manual dispatch, DRY-RUN unless `publish: true`. Publishes via
+# crates.io Trusted Publishing (OIDC — id-token: write, NO long-lived
+# CARGO_REGISTRY_TOKEN secret) with a GitHub build-provenance attestation on each
+# packaged .crate. crates.io publishes are PERMANENT (a version can only be
+# yanked, never overwritten), so the real run is gated behind the `cargo-publish`
+# CI environment (required reviewers).
+#
+# Dependency order is handled by cargo itself: `cargo publish --workspace`
+# computes the crate topological order (abitious-decmpfs → abitious-producer +
+# abitious-stub → abitious) and waits for each crate to become available in the
+# index before publishing the crates that depend on it. The intra-workspace path
+# deps carry a `version` (see Cargo.toml [workspace.dependencies]) so crates.io
+# records a version requirement when the `path` is stripped at publish time.
+#
+# One-time setup: on crates.io add a Trusted Publisher for repo
+# SocketDev/abitious, workflow cargo-publish.yml, environment cargo-publish — for
+# EACH of the 4 crates (abitious-decmpfs, abitious-stub, abitious-producer, abitious).
+
+name: 📦 cargo publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish for real (false = dry-run, the default).'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cargo-publish-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false # Don't cancel a publish.
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Human-approval + OIDC gate on the real, PERMANENT publish; a dry-run is ungated.
+    # The environment is same-named as the workflow (fleet convention; matches envrypt).
+    environment: ${{ inputs.publish == true && 'cargo-publish' || '' }}
+    permissions:
+      contents: read
+      id-token: write # crates.io Trusted Publishing (OIDC)
+      attestations: write # build provenance for each .crate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-07-12);
+      # keep `toolchain:` here in lockstep with it + build.yml. The nightly cargo
+      # provides `cargo publish --workspace` (dependency-ordered, inter-crate wait).
+      - name: Rust toolchain (matches rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@efcb852328a9f50117170cc43094fb6f09eaf1ae # nightly
+        with:
+          toolchain: nightly-2026-07-12
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      # STAGE: verify every crate builds from its packaged sources (no upload).
+      # --workspace resolves the intra-workspace path deps together, so the
+      # not-yet-published siblings don't fail registry resolution.
+      - name: Verify (cargo publish --workspace --dry-run --locked)
+        run: cargo publish --workspace --dry-run --locked
+
+      # APPROVE (real run only, gated by the release environment):
+      - name: crates.io auth (OIDC Trusted Publishing)
+        id: auth
+        if: ${{ inputs.publish == true }}
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1
+      - name: Publish workspace to crates.io (dependency order + inter-crate wait)
+        if: ${{ inputs.publish == true }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish --workspace --locked
+
+      # PROVENANCE: package each .crate + attest it. `cargo package --workspace`
+      # regenerates the 4 .crates in target/package/ (resolving path deps together).
+      - name: Package the .crates for attestation
+        if: ${{ inputs.publish == true }}
+        run: cargo package --workspace --locked
+      - name: Attest build provenance (.crates)
+        if: ${{ inputs.publish == true }}
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: target/package/*.crate

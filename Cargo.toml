@@ -1,0 +1,72 @@
+# abitious — a napi-rs alternative that ships native `.node` addons as
+# self-loading, FS-compressed hybrid `.node` files (via decmpfs).
+#
+# M1 shipped the frozen "pressed-data" section ABI (crates/abitious-decmpfs); the runtime
+# stub (abitious-stub), the producer (abitious-producer), and the `abi` CLI (abitious)
+# landed across M1–M8 and are all present in the members list below.
+[workspace]
+resolver = "2"
+members = [
+  "crates/abitious-decmpfs",
+  "crates/abitious-stub",
+  "crates/abitious-producer",
+  "crates/abitious",
+]
+
+# The 0.x version signals the API is pre-stable; the pressed-data SECTION FORMAT
+# is the real frozen compatibility contract (docs/PRESSED-DATA-FORMAT.md). MIT.
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/SocketDev/abitious"
+homepage = "https://github.com/SocketDev/abitious"
+
+[workspace.dependencies]
+# Intra-workspace path deps carry BOTH `path` (local builds resolve to the sibling
+# crate) AND `version` (crates.io publish requires every dependency to state a version
+# — cargo strips the `path` and records this version from the registry). The version
+# tracks the workspace `version` (0.1.0); bump both together on a release.
+abitious-decmpfs = { path = "crates/abitious-decmpfs", version = "0.1.0" }
+# The shared producer LIBRARY (`compress_node` + `Receipt`), driven by both the
+# `abitious-producer` bin and the `abi` CLI. Pulls apple-codesign via `resign` (the
+# accepted producer-only dep-budget exception) — off the shipped reader/stub tree.
+abitious-producer = { path = "crates/abitious-producer", version = "0.1.0" }
+# The section ABI's two primitives: SHA-512 payload integrity + SHA-256 cache
+# key (`sha2`) and the zstd codec used end-to-end (`zstd`). Both pure Rust, no
+# C toolchain floor beyond zstd-sys's bundled libzstd. Pinned to decmpfs's exact
+# versions so the mirror-image reader/writer agree byte-for-byte.
+sha2 = "=0.10.9"
+zstd = "=0.13.3"
+# The stub + the reader's `self_path`/`resolve_self` runtime seam: `dladdr` to find
+# the loaded module, `dlopen`/`dlsym` to forward into the extracted addon, `getuid`
+# to namespace the per-uid cache. Pure FFI, no C toolchain floor, static-musl-friendly.
+libc = "0.2"
+# Windows-only (M3 proof target is darwin-arm64; Windows is best-effort behind cfg):
+# `GetModuleFileNameW`/`GetModuleHandleExW` for `self_path`, `LoadLibraryW`/
+# `GetProcAddress` for the stub's forward. cfg(windows)-gated, so it never appears in
+# the darwin/linux `cargo tree -e normal` dep-budget check.
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_System_LibraryLoader",
+  # fscompress/windows.rs (NTFS FSCTL_SET_COMPRESSION) + verify.rs on-disk size.
+  # This mirrors decmpfs's proven set for the same code: DeviceIoControl is in
+  # System::IO; CreateFileW / GetCompressedFileSizeW + the FSCTL / COMPRESSION_FORMAT
+  # constants are in Storage::FileSystem; CreateFileW's SECURITY_ATTRIBUTES param
+  # pulls Security (without it CreateFileW is unresolved). cfg(windows)-only, so the
+  # gap only surfaces on the Windows CI leg (never on the macOS dev host).
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+  "Win32_System_IO",
+] }
+
+# Mirror envrypt's release profile (the fleet-canonical native build).
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
+overflow-checks = false
+debug-assertions = false

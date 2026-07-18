@@ -1,0 +1,26 @@
+{
+  "name": "@abitious/win32-arm64-msvc",
+  "version": "0.1.0",
+  "description": "abitious prebuilt stub + host `abi` producer for win32-arm64-msvc.",
+  "license": "MIT",
+  "repository": "https://github.com/SocketDev/abitious",
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "README.md",
+    "abi.exe",
+    "stub.node"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  }
+}

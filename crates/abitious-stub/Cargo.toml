@@ -1,0 +1,36 @@
+[package]
+name = "abitious-stub"
+description = "The generic abitious self-extracting trampoline: a cdylib whose napi_register_module_v1 self-extracts the real addon from its own SMOL/__PRESSED_DATA section and forwards registration to it."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["napi", "addon", "trampoline", "dlopen", "self-extracting"]
+categories = ["development-tools"]
+
+# A generic native addon: ONE prebuilt stub image per platform/arch, into which the
+# producer injects the compressed real addon. Built with `-headerpad,0x1000` (see
+# build.rs) so the injector has Mach-O header slack for the new segment command.
+[lib]
+crate-type = ["cdylib"]
+
+[lints.rust]
+# `coverage` / `coverage_nightly` are set by cargo-llvm-cov (nightly) to gate the
+# `#[coverage(off)]` markers on the test module + the dlopen-only trampoline; declare
+# them so stable builds don't warn.
+unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(coverage)',
+  'cfg(coverage_nightly)',
+] }
+
+# The stub links ONLY the dep-lean reader/ABI (default features — NO resign, so no
+# apple-codesign/reqwest/tokio/hyper) plus libc for the dlopen/dlsym forward.
+[dependencies]
+abitious-decmpfs = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }

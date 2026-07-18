@@ -1,0 +1,53 @@
+[package]
+name = "abitious-decmpfs"
+description = "The abitious pressed-data section ABI: build, parse, and locate a compressed-hybrid .node section (mirror of decmpfs's reader)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["napi", "addon", "compression", "decmpfs", "zstd"]
+categories = ["compression", "development-tools"]
+
+[features]
+# Off by default so the reader/ABI dependency tree stays dep-lean: with default
+# features `cargo tree -e normal` shows NO reqwest/tokio/hyper. Producers enable
+# `resign` to ad-hoc re-sign the injected Mach-O via apple-codesign (macOS only).
+#
+# apple-codesign UNCONDITIONALLY pulls reqwest + tokio + hyper (its remote-signing
+# module is not feature-gated in any published version), so it cannot live on the
+# default path without blowing the "no reqwest/tokio/hyper" budget. Gating it behind
+# an opt-in feature keeps the shipped stub/reader clean while still exposing the
+# apple-codesign ad-hoc signer to the producer path. It uses rustls + RustCrypto, so
+# even when enabled it pulls NO openssl-sys.
+default = []
+resign = ["dep:apple-codesign"]
+
+[lints.rust]
+# `coverage` / `coverage_nightly` are set by cargo-llvm-cov (nightly) to gate the
+# `#[coverage(off)]` test-module markers; declare them so stable builds don't warn.
+unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(coverage)',
+  'cfg(coverage_nightly)',
+] }
+
+[dependencies]
+sha2 = { workspace = true }
+zstd = { workspace = true }
+
+# `self_path` (dladdr) + the per-uid cache path (getuid) in the `selfextract` module.
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+# Windows `self_path` (GetModuleFileNameW / GetModuleHandleExW). cfg-gated so the
+# darwin/linux default tree never sees it.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }
+
+# apple-codesign ad-hoc re-signs the injected Mach-O so the new SMOL/__PRESSED_DATA
+# section stays covered by the code signature (codesign -v clean). macOS-only: it's
+# the only target whose loader enforces a signature on dlopen. `default-features =
+# false` drops the notarize/App-Store-Connect/AWS stack; `optional` + the `resign`
+# feature keep it (and its reqwest/tokio/hyper transitive deps) off the default tree.
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-codesign = { version = "0.29", default-features = false, optional = true }

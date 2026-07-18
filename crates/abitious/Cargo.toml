@@ -1,0 +1,31 @@
+[package]
+name = "abitious"
+description = "The abitious `abi` CLI: cargo-build a napi cdylib for the host triple, resolve its .node artifact, and optionally compress it into a self-loading hybrid .node via the abitious producer."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["napi", "addon", "cli", "compression", "cargo"]
+categories = ["development-tools", "command-line-utilities"]
+
+[[bin]]
+name = "abi"
+path = "src/main.rs"
+
+[lints.rust]
+# `coverage` / `coverage_nightly` are set by cargo-llvm-cov (nightly) to gate the
+# `#[coverage(off)]` test-module markers; declare them so stable builds don't warn.
+unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(coverage)',
+  'cfg(coverage_nightly)',
+] }
+
+# The CLI is a HOST build-time tool. It drives the shared `compress_node` library
+# (abitious-producer, which pulls apple-codesign via `resign` — the accepted
+# producer-only exception) and the reader (abitious-decmpfs) for the round-trip oracle.
+# Arg parsing and the small cargo-metadata JSON reader are hand-rolled (dep budget: no
+# clap, no serde_json — the shipped reader/stub tree stays untouched).
+[dependencies]
+abitious-producer = { workspace = true }
+abitious-decmpfs = { workspace = true }
