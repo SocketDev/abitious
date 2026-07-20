@@ -1,175 +1,79 @@
-# github-release — build every supported platform package and attach the tarballs
-# (+ SHA-256 checksums) to the published GitHub Release.
-#
-# Dependencies: none — self-contained. Fires on `release: published` (the fleet
-# decmpfs pattern): once a GitHub Release is published, this cross-builds ALL
-# supported targets and uploads one @abitious/<triple>.tar.gz per target plus a
-# SHA256SUMS.txt as release assets, so consumers can fetch a verified prebuilt
-# directly from the Release. (npm publishing is separate — npm-publish.yml.)
-#
-# ALL 8 targets ship a prebuilt (this is the RELEASE build, not the fast push/PR
-# CI subset in build.yml). The matrix is DERIVED from the single source of truth
-# (scripts/targets.mts) via `gen-packages --print-matrix-all` (the unfiltered
-# target set), so the triple list is never duplicated here. Each target builds on
-# its NATIVE-arch runner so only the C library differs: macos-14/macos-13 for
-# darwin, ubuntu-latest + ubuntu-24.04-arm for the linux gnu AND musl targets,
-# windows-latest + windows-11-arm for win32. The musl targets install the musl C
-# toolchain (musl-tools → musl-gcc, wired via CC_<triple>) so zstd-sys's bundled
-# libzstd C build compiles natively.
-#
-# Every action is pinned to a commit SHA (SocketDev sha_pinning_required), copied
-# from the fleet's canonical pins (decmpfs for the JS actions, envrypt for Rust).
+name: 🚀 GitHub release
 
-name: 🏷️ GitHub Release
+# PRESET — seeded once from template/presets/ (onboarding or first cascade),
+# then repo-owned: customize what THIS repo releases. The fleet base actions
+# do the heavy lifting — github-release-app-token mints the release App token,
+# github-release cuts the immutable 3-step release tied to the pushed tag
+# (create --draft → upload assets → edit --draft=false).
+#
+# Default flow: push a signed v* tag → this workflow cuts a GitHub Release for
+# it. A manual dispatch is a DRY-RUN (prints the cut plan) unless
+# `release: true`. Add build steps + assets for whatever this repo ships.
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Cut the release for real (false = dry-run plan, the default).'
+        type: boolean
+        default: false
+      tag:
+        description: 'Tag to release. Required on dispatch (tag pushes use the pushed tag).'
+        type: string
+        default: ''
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: read
 
-concurrency:
-  group: github-release-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false # Don't cancel an in-flight release build.
-
-defaults:
-  run:
-    shell: bash
-
-# No-phone-home posture: every tool this workflow touches runs telemetry-off.
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: '1'
-  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
-  COREPACK_ENABLE_PROJECT_SPEC: '0'
-  DISABLE_TELEMETRY: '1'
-  DO_NOT_TRACK: '1'
-  NO_UPDATE_NOTIFIER: '1'
-
 jobs:
-  # Derive the FULL release matrix (all targets) from the single source of truth.
-  prepare:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      matrix: ${{ steps.gen.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      # No `cache:` input is set, so setup-node does not cache here; the release-trigger
-      # cache-poisoning heuristic is a low-confidence false positive.
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0 # zizmor: ignore[cache-poisoning]
-        with:
-          node-version: 24
-      - id: gen
-        name: derive the full release matrix from scripts/targets.mts
-        run: |
-          set -euo pipefail
-          matrix="$(node scripts/gen-packages.mts --print-matrix-all)"
-          echo "matrix={\"include\":${matrix}}" >> "$GITHUB_OUTPUT"
-
-  # Cross-build the stub cdylib + host abi producer per target and package the
-  # @abitious/<triple>. Darwin targets run on macOS runners so the host `abi`
-  # producer (ad-hoc re-signing injected Mach-O) and the darwin stub both build
-  # against the macOS SDK; musl targets install a musl C toolchain for zstd-sys.
-  build:
-    needs: prepare
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      # No `cache:` input is set, so setup-node does not cache here; the release-trigger
-      # cache-poisoning heuristic is a low-confidence false positive.
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0 # zizmor: ignore[cache-poisoning]
-        with:
-          node-version: 24
-      # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-07-12); keep
-      # `toolchain:` here in lockstep with it + build.yml. `targets:` runs the matrix
-      # target's `rustup target add` (incl. the musl std for the musl targets).
-      - uses: dtolnay/rust-toolchain@efcb852328a9f50117170cc43094fb6f09eaf1ae # nightly
-        with:
-          toolchain: nightly-2026-07-12
-          targets: ${{ matrix.rust }}
-      # A release build must not depend on a shared cache it could bake into the
-      # asset, so restore read-only (never save): save-if is false everywhere here.
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2 # zizmor: ignore[cache-poisoning]
-        with:
-          key: ${{ matrix.triple }}
-          save-if: 'false'
-      # musl targets build on their NATIVE-arch runner, so the distro musl-gcc IS the
-      # right compiler (no cross-toolchain needed). Point cc-rs at it via CC_<triple>
-      # (underscored) so zstd-sys's bundled libzstd C build uses musl-gcc.
-      - name: install the musl C toolchain (musl targets only)
-        if: ${{ matrix.libc == 'musl' }}
-        env:
-          RUST_TARGET: ${{ matrix.rust }}
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-          echo "CC_${RUST_TARGET//-/_}=musl-gcc" >> "$GITHUB_ENV"
-      - name: build the generic stub cdylib + the host abi producer
-        env:
-          RUST_TARGET: ${{ matrix.rust }}
-        run: |
-          set -euo pipefail
-          cargo build -p abitious-stub --release --target "$RUST_TARGET"
-          cargo build -p abitious --release --target "$RUST_TARGET"
-      - name: stage the @abitious/${{ matrix.triple }} package
-        env:
-          TRIPLE: ${{ matrix.triple }}
-          RUST_TARGET: ${{ matrix.rust }}
-          STUB_ARTIFACT: ${{ matrix.stubArtifact }}
-          BIN: ${{ matrix.bin }}
-        run: |
-          set -euo pipefail
-          node scripts/gen-packages.mts
-          dest="npm/${TRIPLE}"
-          out="target/${RUST_TARGET}/release"
-          cp "${out}/${STUB_ARTIFACT}" "${dest}/stub.node"
-          cp "${out}/${BIN}" "${dest}/${BIN}"
-          ls -la "${dest}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: abitious-${{ matrix.triple }}
-          path: npm/${{ matrix.triple }}
-          if-no-files-found: error
-
-  # Gather every platform package, tar + SHA-256 each, and attach to the Release.
   release:
-    needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    # Human-approval gate on the asset upload; same-named as the workflow (fleet
-    # convention, like cargo-publish / npm-publish).
-    environment: github-release
     permissions:
-      contents: write # upload assets to the GitHub Release
+      contents: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      # First step must be the third-party actions/checkout (GitHub fetches it
+      # independently) to populate the workspace so the LOCAL
+      # ./.github/actions/* composite resolves; the fleet checkout action then
+      # re-checks-out at its own depth.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2 (2026-05-15)
         with:
-          pattern: abitious-*
-          path: dist
-      - name: tarball each platform package + SHA-256 checksums
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout
+        uses: ./.github/actions/fleet/checkout
+      - name: Resolve tag
+        id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          mkdir -p out
-          for d in dist/abitious-*; do
-            [ -d "$d" ] || continue
-            triple="${d#dist/abitious-}"
-            tar -czf "out/abitious-${triple}.tar.gz" -C "$d" .
-          done
-          (cd out && shasum -a 256 ./*.tar.gz > SHA256SUMS.txt)
-          cat out/SHA256SUMS.txt
-      - name: attach artifacts to the GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG" out/* --clobber
+          if [ "${EVENT_NAME}" = "push" ]; then
+            TAG="${REF_NAME}"
+          elif [ -n "${INPUT_TAG}" ]; then
+            TAG="${INPUT_TAG}"
+          else
+            echo "× a manual dispatch needs the tag input (tag pushes resolve it from the ref)." >&2
+            echo "  Fix: re-dispatch with tag: v<version> (the tag must already be pushed)." >&2
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+      - name: Mint release-app token
+        id: app-token
+        uses: ./.github/actions/fleet/github-release-app-token
+        with:
+          client-id: ${{ vars.SOCKET_RELEASE_CLIENT_ID }}
+          private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+      # Build this repo's release assets here, then list them under the cut
+      # step's `assets:` (newline-separated paths; each must exist).
+      - name: Cut immutable GitHub release
+        uses: ./.github/actions/fleet/github-release
+        with:
+          tag: ${{ steps.tag.outputs.tag }}
+          dry-run: ${{ (github.event_name == 'push' || inputs.release) && 'false' || 'true' }}
+          token: ${{ steps.app-token.outputs.token }}

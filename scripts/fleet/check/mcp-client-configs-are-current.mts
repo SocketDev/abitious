@@ -15,7 +15,9 @@ import { getDefaultLogger } from '@socketsecurity/lib-stable/logger/default'
 import { isMainModule } from '../_shared/is-main-module.mts'
 import {
   parseCanonicalMcpConfig,
+  renderCodexHooksConfig,
   renderCodexMcpConfig,
+  renderKimiProjectMcpConfig,
   renderOpenCodeMcpConfig,
 } from '../mcp-config.mts'
 import type { PortableMcpServers } from '../mcp-config.mts'
@@ -27,7 +29,7 @@ function main(): void {
   const issues = findMcpClientConfigIssues(REPO_ROOT)
   if (issues.length === 0) {
     logger.success(
-      '[mcp-client-configs-are-current] Codex/OpenCode configs match .mcp.json.',
+      '[mcp-client-configs-are-current] Codex/OpenCode/Kimi configs match .mcp.json.',
     )
     return
   }
@@ -63,12 +65,20 @@ export function findMcpClientConfigIssues(repoRoot: string): string[] {
 
   const expected = [
     {
+      content: renderCodexHooksConfig(),
+      relativePath: '.codex/hooks.json',
+    },
+    {
       content: renderCodexMcpConfig(servers),
       relativePath: '.codex/config.toml',
     },
     {
       content: renderOpenCodeMcpConfig(servers),
       relativePath: 'opencode.json',
+    },
+    {
+      content: renderKimiProjectMcpConfig(servers),
+      relativePath: '.kimi-code/mcp.json',
     },
   ]
   const issues: string[] = []

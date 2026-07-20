@@ -7,8 +7,19 @@
       "publishes": "custom"
     },
     {
+      "name": "node-smol",
+      "description": "Customized Node.js distribution with Socket native integrations",
+      "optIns": ["squash-history"],
+      "publishes": "binary"
+    },
+    {
       "name": "socket-cli",
       "description": "Command-line interface for socket.dev security analysis"
+    },
+    {
+      "name": "socket-gemini-nano",
+      "description": "On-device Gemini Nano Prompt API library for browser and Node",
+      "publishes": "js"
     },
     {
       "name": "socket-lib",
@@ -36,6 +47,11 @@
       "publishes": "js"
     },
     {
+      "name": "bun-security-scanner",
+      "description": "Security scanner for the Bun package manager (bunfig.toml install.security integration)",
+      "publishes": "js"
+    },
+    {
       "name": "abitious",
       "description": "napi-rs alternative — ship native .node addons as compressed hybrid .node via decmpfs",
       "optIns": ["squash-history"],
@@ -43,7 +59,7 @@
     },
     {
       "name": "decmpfs",
-      "owner": "decmpfs",
+      "owner": "SocketDev",
       "description": "Transparent-compression (decmpfs) reader/writer for macOS — Rust crate",
       "publishes": "cargo"
     },

@@ -5,7 +5,8 @@
  *   chain, release-and-docs); see that file for the assembled order.
  */
 
-import { run, type CheckStep } from './check-steps.mts'
+import { run } from './check-steps.mts'
+import type { CheckStep } from './check-steps.mts'
 
 export function buildHookAndDocSteps(forwardedArgs: string[]): CheckStep[] {
   return [
@@ -92,6 +93,14 @@ export function buildHookAndDocSteps(forwardedArgs: string[]): CheckStep[] {
     // half-built skill (engine/test, no SKILL.md) that the mirror + citation
     // gates would otherwise trip on later.
     () => run('node', ['scripts/fleet/check/skills-are-well-formed.mts']),
+    () => run('node', ['scripts/fleet/check/skill-system-is-coherent.mts']),
+    // The interface-design authority and its four companions form one routing
+    // cluster. Require reciprocal direct links so no skill becomes an orphaned
+    // prompt island after a rename or a future companion is added.
+    () =>
+      run('node', [
+        'scripts/fleet/check/design-skill-cluster-is-connected.mts',
+      ]),
     // Cost routing: every mutating (fix) skill must declare a model: tier so
     // mechanical work runs cheap. See docs/agents.md/fleet/skill-model-routing.md.
     () => run('node', ['scripts/fleet/check/mutating-skills-have-model.mts']),
@@ -109,6 +118,14 @@ export function buildHookAndDocSteps(forwardedArgs: string[]): CheckStep[] {
     // goldenTarget predicate.
     () =>
       run('node', ['scripts/fleet/check/golden-fixtures-are-named-golden.mts']),
+    // Commit-time twin of no-nested-gitignore-guard: every ignore entry lives in
+    // the single root .gitignore — no tracked nested per-dir .gitignore. Reuses
+    // the guard's isNestedGitignore predicate.
+    () => run('node', ['scripts/fleet/check/gitignore-is-single-file.mts']),
+    // DRY bypass-phrase gate: a defineHook hook that references an `Allow <slug>
+    // bypass` phrase must declare it as `bypass:` metadata (single source →
+    // detector + footer), never hand-write it. Catches drift regressions.
+    () => run('node', ['scripts/fleet/check/bypass-phrases-are-metadata.mts']),
     // package.json's packageManager + engines.{pnpm,npm} are GENERATED from
     // external-tools.json (the single source); this gate fails on drift.
     () =>

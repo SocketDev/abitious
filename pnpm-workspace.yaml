@@ -1,10 +1,10 @@
 catalog:
   '@redwoodjs/agent-ci': 0.17.1
-  '@sinclair/typebox': 0.34.50
-  '@socketregistry/packageurl-js': 1.4.2
+  '@sinclair/typebox': 0.34.52
+  '@socketregistry/packageurl-js': 1.4.4
   '@socketregistry/packageurl-js-stable': npm:@socketregistry/packageurl-js@1.4.2
-  '@socketsecurity/lib': 6.0.10
-  '@socketsecurity/lib-stable': npm:@socketsecurity/lib@6.0.10
+  '@socketsecurity/lib': 6.1.0
+  '@socketsecurity/lib-stable': npm:@socketsecurity/lib@6.1.0
   '@socketsecurity/registry': 2.0.2
   '@socketsecurity/registry-stable': npm:@socketsecurity/registry@2.0.2
   '@socketsecurity/sdk': 4.0.1
@@ -20,6 +20,7 @@ catalog:
   'chrome-devtools-mcp': 1.5.0
   'compromise': 14.15.1
   'dtu-github-actions': 0.17.1
+  'fast-check': 4.9.0
   'magic-string': 1.0.0
   'markdownlint-cli2': 0.23.0
   'mdast-util-from-markdown': 2.0.3
@@ -29,9 +30,10 @@ catalog:
   'oxfmt': 0.58.0
   'oxlint': 1.73.0
   'playwright-core': 1.61.1
+  'portless': 0.15.4
   'regjsparser': 0.13.2
   'semver': 7.8.5
-  'shell-quote': 1.9.0
+  'shell-quote': 1.10.0
   'taze': 19.14.1
   'typescript': 7.0.2
   'vitest': 4.1.10
@@ -102,6 +104,8 @@ minimumReleaseAgeExclude:
   - 'dtu-github-actions@0.17.1'
   # published: 2026-07-16 | removable: 2026-07-23
   - 'magic-string@1.0.0'
+  # published: 2026-07-16 | removable: 2026-07-23
+  - 'portless@0.15.4'
 blockExoticSubdeps: true
 confirmModulesPurge: false
 managePackageManagerVersions: false

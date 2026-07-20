@@ -36,9 +36,6 @@ import type { GuardResult } from '../_shared/guard.mts'
 import type { ToolCallPayload } from '../_shared/payload.mts'
 import { commandsFor } from '../_shared/shell-command.mts'
 import { spawnTimeoutMs } from '../_shared/spawn-timeout.mts'
-import { bypassPhrasePresent } from '../_shared/transcript.mts'
-
-const BYPASS_PHRASE = 'Allow concurrent-cargo-build bypass'
 
 // Patterns that identify a release build invocation. Each entry is a regex
 // matched against the command string AND a separate regex used by the process
@@ -151,12 +148,7 @@ export function checkCommand(
     return undefined
   }
 
-  if (
-    payload.transcript_path &&
-    bypassPhrasePresent(payload.transcript_path, BYPASS_PHRASE)
-  ) {
-    return undefined
-  }
+  void payload
 
   return block(
     [
@@ -172,9 +164,6 @@ export function checkCommand(
       '    - Wait for the in-flight build to finish.',
       '    - Run a dev build instead: `cargo build` (no --release) is',
       '      fast (~1-2s) and parallel-safe.',
-      `    - Bypass: type "${BYPASS_PHRASE}" in a new message, then retry`,
-      '      (use sparingly; OOM consequences are real).',
-      '',
     ].join('\n'),
   )
 }
@@ -182,6 +171,7 @@ export function checkCommand(
 export const check = bashGuard(checkCommand)
 
 export const hook = defineHook({
+  bypass: ['concurrent-cargo-build'],
   check,
   event: 'PreToolUse',
   matcher: ['Bash'],
