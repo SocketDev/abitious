@@ -12,6 +12,10 @@ members = [
   "crates/abitious-producer",
   "crates/abitious",
 ]
+# The cargo-fuzz tree is its own standalone workspace (fuzz/Cargo.toml has an
+# empty `[workspace]` table + an INVERTED release profile): excluded here so a
+# root `cargo build` never sweeps it in and it never inherits this ship profile.
+exclude = ["fuzz"]
 
 # The 0.x version signals the API is pre-stable; the pressed-data SECTION FORMAT
 # is the real frozen compatibility contract (docs/PRESSED-DATA-FORMAT.md). MIT.

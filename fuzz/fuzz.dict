@@ -1,0 +1,24 @@
+# libFuzzer dictionary for the abitious fuzz targets (passed via `-dict=fuzz.dict`).
+# Tokens are the load-bearing byte sequences of the frozen pressed-data section ABI
+# and the three object-file container magics — steering the mutator toward
+# structurally interesting inputs (a valid magic + a plausible header) instead of
+# rediscovering them by chance. See docs/PRESSED-DATA-FORMAT.md.
+
+# --- pressed-data section marker (32B, must lead a bare section blob) ---
+magic_marker="__SMOL_PRESSED_DATA_MAGIC_MARKER"
+
+# --- object-file container magics the reader dispatches on ---
+macho_le="\xcf\xfa\xed\xfe"
+macho_be="\xfe\xed\xfa\xcf"
+elf="\x7fELF"
+pe_mz="MZ"
+pe_sig="PE\x00\x00"
+
+# --- section names walked in each container ---
+macho_segname="SMOL"
+macho_sectname="__PRESSED_DATA"
+elf_sectname=".PRESSED_DATA"
+pe_sectname=".PRESSED"
+
+# --- zstd frame magic (the compressed payload the header frames) ---
+zstd_magic="\x28\xb5\x2f\xfd"

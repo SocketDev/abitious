@@ -1,0 +1,59 @@
+# cargo-fuzz workspace for abitious (fleet property-and-fuzz spec, mirror of
+# envrypt/fuzz/).
+#
+# STANDALONE WORKSPACE (the empty `[workspace]` table below + the parent
+# workspace's `exclude = ["fuzz"]`): so a stray `cargo build` at the repo root
+# never sweeps the fuzzer in, and the fuzzer never inherits the ship
+# `[profile.release]` (which sets `panic = "abort"` + `overflow-checks = false`).
+# This crate's own INVERTED profile turns assertions/overflow checks back ON so
+# silent wraps and assertion violations become crash findings.
+#
+# `Cargo.lock` is COMMITTED (reproducible fuzz builds). Path-dep into
+# `abitious-decmpfs` with DEFAULT features (no `resign`, so no
+# apple-codesign/reqwest/tokio/hyper) — the fuzz targets link the exact same
+# dep-lean reader graph the shipped stub/reader use. The untrusted-input surface
+# is the hybrid `.node` reader + the pressed-data section decoder; see
+# docs/PRESSED-DATA-FORMAT.md.
+
+[workspace]
+
+[package]
+name = "abitious-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+abitious-decmpfs = { path = "../crates/abitious-decmpfs" }
+
+[lints.rust]
+# cargo-fuzz sets `--cfg fuzzing`; keep it out of the unexpected_cfgs warning so a
+# clippy run over the fuzz crate stays clean.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+
+# Inverted profile — the fuzzer must NOT inherit the ship profile's
+# panic="abort"/overflow-checks=false. Turn assertions + overflow checks back ON
+# so silent wraps / assertion violations become crash findings.
+[profile.release]
+debug = 1                # symbolized backtraces in crash reports
+debug-assertions = true  # assertion violations become findings
+overflow-checks = true   # silent wrapping arithmetic becomes a crash finding
+
+[[bin]]
+name = "read_hybrid_node"
+path = "fuzz_targets/read_hybrid_node.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_pressed_data"
+path = "fuzz_targets/decode_pressed_data.rs"
+test = false
+doc = false
+bench = false
