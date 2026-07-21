@@ -1473,4 +1473,125 @@ mod tests {
     bin[sect + 20..sect + 24].copy_from_slice(&0u32.to_le_bytes()); // PointerToRawData = 0
     assert!(unwrap_if_hybrid(&bin).is_none());
   }
+
+  // --- Tier-1 property tests (fleet property-and-fuzz spec) -----------------
+  //
+  // Round-trip + never-panic + oracle properties over the frozen pressed-data
+  // section ABI and the object-file readers. The equivalent adversarial-bytes
+  // surface is covered by the cargo-fuzz targets (fuzz/fuzz_targets/), which run
+  // under ASan with an inverted (assertions + overflow-checks ON) profile; these
+  // proptests give a fast, deterministic in-tree signal on every `cargo test`.
+  mod props {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// The three enum families, as (`Strategy`, byte) generators for the section
+    /// producer's platform/arch/libc slots.
+    fn platform() -> impl Strategy<Value = Platform> {
+      prop_oneof![
+        Just(Platform::Linux),
+        Just(Platform::Darwin),
+        Just(Platform::Win32),
+      ]
+    }
+    fn arch() -> impl Strategy<Value = Arch> {
+      prop_oneof![
+        Just(Arch::X64),
+        Just(Arch::Arm64),
+        Just(Arch::Ia32),
+        Just(Arch::Arm),
+      ]
+    }
+    fn libc() -> impl Strategy<Value = Libc> {
+      prop_oneof![Just(Libc::Glibc), Just(Libc::Musl), Just(Libc::Na)]
+    }
+
+    proptest! {
+      /// ROUND-TRIP: a freshly framed section always decodes back to the exact
+      /// input, for any raw addon, any platform/arch/libc, any valid zstd level.
+      #[test]
+      fn build_then_decode_is_the_identity(
+        raw in proptest::collection::vec(any::<u8>(), 1..4096),
+        p in platform(),
+        a in arch(),
+        l in libc(),
+        level in 1i32..=19,
+      ) {
+        let section = build_section_payload(&raw, p, a, l, level);
+        let decoded = decode_pressed_data(&section);
+        prop_assert_eq!(decoded.as_deref(), Some(raw.as_slice()));
+      }
+
+      /// ORACLE: a freshly framed section's stamped header agrees with the decoder
+      /// — the inspector reports the true sizes/cache key and verifies integrity
+      /// WITHOUT decompressing, matching what `decode_pressed_data` accepts.
+      #[test]
+      fn inspector_agrees_with_the_producer(
+        raw in proptest::collection::vec(any::<u8>(), 1..4096),
+        p in platform(),
+        a in arch(),
+        l in libc(),
+        level in 1i32..=19,
+      ) {
+        let section = build_section_payload(&raw, p, a, l, level);
+        let info = read_section_info(&section).expect("a producer section parses");
+        prop_assert_eq!(info.uncompressed_size, raw.len() as u64);
+        prop_assert_eq!(info.cache_key, pressed_data_cache_key(&section).unwrap());
+        prop_assert!(info.integrity_verified);
+        prop_assert_eq!(info.platform, Some(p));
+        prop_assert_eq!(info.arch, Some(a));
+        prop_assert_eq!(info.libc, Some(l));
+      }
+
+      /// NEVER-PANIC: every reader/decoder/producer entry tolerates arbitrary
+      /// bytes without panicking, overflowing, or exceeding the DoS cap. This is
+      /// the proptest mirror of the `read_hybrid_node` / `decode_pressed_data` /
+      /// `inject_pressed_data` fuzz targets.
+      #[test]
+      fn readers_never_panic_on_arbitrary_bytes(
+        data in proptest::collection::vec(any::<u8>(), 0..8192),
+      ) {
+        if let Some(raw) = unwrap_if_hybrid(&data) {
+          prop_assert!(raw.len() as u64 <= MAX_DECOMPRESSED);
+        }
+        if let Some(raw) = decode_pressed_data(&data) {
+          prop_assert!(raw.len() as u64 <= MAX_DECOMPRESSED);
+        }
+        let _ = read_section_info(&data);
+        let _ = inspect_hybrid(&data);
+        let _ = pressed_data_cache_key(&data);
+        // The producer-side object injector must also survive arbitrary `binary`
+        // bytes (a Result either way, never a panic/overflow).
+        let section = build_section_payload(b"x", Platform::Linux, Arch::X64, Libc::Glibc, 1);
+        let _ = inject_pressed_data(&data, &section);
+      }
+
+      /// ORACLE: a decode that SUCCEEDS implies the inspector marks the same bytes
+      /// integrity-verified — the two readers can never disagree on a good section.
+      #[test]
+      fn decode_success_implies_integrity_verified(
+        data in proptest::collection::vec(any::<u8>(), 0..8192),
+      ) {
+        if decode_pressed_data(&data).is_some() {
+          let info = read_section_info(&data).expect("a decodable section has a parseable header");
+          prop_assert!(info.integrity_verified);
+        }
+      }
+
+      /// NEVER-PANIC + ROUND-TRIP: the frozen enum byte decoders accept every u8,
+      /// and any recognized byte round-trips through `variant as u8`.
+      #[test]
+      fn enum_from_u8_roundtrips_for_every_byte(byte in any::<u8>()) {
+        if let Some(p) = Platform::from_u8(byte) {
+          prop_assert_eq!(p as u8, byte);
+        }
+        if let Some(a) = Arch::from_u8(byte) {
+          prop_assert_eq!(a as u8, byte);
+        }
+        if let Some(l) = Libc::from_u8(byte) {
+          prop_assert_eq!(l as u8, byte);
+        }
+      }
+    }
+  }
 }

@@ -57,3 +57,10 @@ path = "fuzz_targets/decode_pressed_data.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "inject_pressed_data"
+path = "fuzz_targets/inject_pressed_data.rs"
+test = false
+doc = false
+bench = false

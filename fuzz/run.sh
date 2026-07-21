@@ -35,6 +35,7 @@ target_flags() {
   case "$1" in
     read_hybrid_node)    echo "-timeout=10 -rss_limit_mb=2048 -max_len=65536" ;;
     decode_pressed_data) echo "-timeout=10 -rss_limit_mb=2048 -max_len=4096" ;;
+    inject_pressed_data) echo "-timeout=10 -rss_limit_mb=2048 -max_len=65536" ;;
     *) echo "unknown target: $1" >&2; return 1 ;;
   esac
 }
@@ -68,10 +69,10 @@ run_one() {
 
 case "${1:-all}" in
   all)
-    for t in read_hybrid_node decode_pressed_data; do run_one "$t"; done ;;
-  read_hybrid_node|decode_pressed_data)
+    for t in read_hybrid_node decode_pressed_data inject_pressed_data; do run_one "$t"; done ;;
+  read_hybrid_node|decode_pressed_data|inject_pressed_data)
     run_one "$1" ;;
   *)
-    echo "usage: $0 <read_hybrid_node|decode_pressed_data|all> [seconds]" >&2
+    echo "usage: $0 <read_hybrid_node|decode_pressed_data|inject_pressed_data|all> [seconds]" >&2
     exit 2 ;;
 esac

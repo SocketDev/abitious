@@ -431,4 +431,82 @@ mod tests {
     sorted.dedup();
     assert_eq!(sorted.len(), 4);
   }
+
+  // --- Tier-1 property tests (fleet property-and-fuzz spec) -----------------
+  //
+  // The gate string parser is a system boundary: the size predicate / glob come
+  // from a manifest or CLI flag. These properties assert it never panics on
+  // arbitrary input, that the size grammar round-trips, and that the glob matcher
+  // agrees with byte-equality on wildcard-free patterns. Inputs are kept small so
+  // the recursive glob backtracker stays fast — this is a correctness/panic-safety
+  // check, not a backtracking-DoS hunt.
+  mod props {
+    // Reach the private `parse_size` / `glob_inner` of the gate module (a
+    // descendant module sees its ancestors' private items).
+    use super::super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+      /// NEVER-PANIC: the size-predicate and gate parsers, and the glob matcher,
+      /// tolerate arbitrary UTF-8 without panicking (a graceful `Err`/`false` is
+      /// the only non-finding outcome).
+      #[test]
+      fn parsers_never_panic_on_arbitrary_strings(s in ".{0,64}") {
+        let _ = SizePredicate::parse(&s);
+        let _ = parse_size(&s);
+        let _ = Gate::new(Some(&s), Some(&s));
+        let _ = glob_match(&s, &s);
+      }
+
+      /// ROUND-TRIP: a bare byte count formats and re-parses to the same value.
+      #[test]
+      fn parse_size_roundtrips_bare_bytes(n in any::<u64>()) {
+        prop_assert_eq!(parse_size(&n.to_string()), Ok(n));
+      }
+
+      /// ROUND-TRIP + SEMANTICS: a predicate formatted from a threshold re-parses
+      /// to the same variant and compares correctly at the boundary.
+      #[test]
+      fn size_predicate_roundtrips_and_compares(n in 0u64..u64::MAX, at_least in any::<bool>()) {
+        let spec = format!("{} {}", if at_least { ">=" } else { ">" }, n);
+        let pred = SizePredicate::parse(&spec).expect("a formatted predicate parses");
+        if at_least {
+          prop_assert_eq!(pred, SizePredicate::AtLeast(n));
+          prop_assert!(pred.matches(n));
+          prop_assert!(pred.matches(n + 1));
+        } else {
+          prop_assert_eq!(pred, SizePredicate::GreaterThan(n));
+          prop_assert!(!pred.matches(n));
+          prop_assert!(pred.matches(n + 1));
+        }
+      }
+
+      /// ORACLE: with no wildcard metacharacters, the glob matcher is exactly
+      /// byte-equality between pattern and text.
+      #[test]
+      fn wildcard_free_glob_is_byte_equality(
+        pat in "[a-c./]{0,10}",
+        text in "[a-c./]{0,10}",
+      ) {
+        prop_assert_eq!(glob_match(&pat, &text), pat == text);
+      }
+
+      /// REFLEXIVE: a wildcard-free pattern always matches itself.
+      #[test]
+      fn wildcard_free_glob_is_reflexive(pat in "[a-c./]{0,16}") {
+        prop_assert!(glob_match(&pat, &pat));
+      }
+
+      /// NEVER-PANIC (wildcards): small patterns with the full metacharacter set
+      /// against small texts terminate without panicking. Bounded lengths keep the
+      /// recursive backtracker fast and deterministic.
+      #[test]
+      fn wildcard_glob_never_panics(
+        pat in "[a*?/]{0,12}",
+        text in "[a/]{0,20}",
+      ) {
+        let _ = glob_match(&pat, &text);
+      }
+    }
+  }
 }
