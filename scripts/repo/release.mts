@@ -160,6 +160,21 @@ if (changed.length) {
 }
 
 const tag = `v${version}`
+// verify-before-acting: a tag whose GitHub Release was already cut is immutable
+// — refuse to move it. A tag with no Release (e.g. a failed release run) is safe
+// to re-fire.
+if (push) {
+  const released = spawnSync('gh', ['release', 'view', tag, '--json', 'tagName'], {
+    cwd: root,
+    encoding: 'utf8',
+  })
+  if (released.status === 0) {
+    die(
+      `GitHub Release ${tag} already exists and is immutable — bump the version ` +
+        `instead of moving ${tag}.`,
+    )
+  }
+}
 git(['tag', '-f', tag], { stdio: 'inherit' })
 
 if (push) {
