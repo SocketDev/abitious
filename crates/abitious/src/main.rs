@@ -81,6 +81,11 @@ fn run<W: Write>(
 /// failing has no in-process trigger (a live process always has a cwd), so branching on it
 /// is defensive; keeping it out of `run` leaves `run`'s dispatch fully unit-testable.
 #[cfg_attr(coverage_nightly, coverage(off))]
+// The `abi` CLI legitimately resolves the process cwd to run `cargo build` there — a
+// user-facing build tool operating on the current directory (like `cargo` itself), not a
+// fleet script/hook reading ambient state. `main` has no caller to thread a base path from,
+// so the disallowed-methods `current_dir` ban is waived at this single site.
+#[allow(clippy::disallowed_methods)]
 fn current_working_dir() -> PathBuf {
   match std::env::current_dir() {
     Ok(cwd) => cwd,
