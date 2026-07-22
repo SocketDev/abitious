@@ -113,6 +113,19 @@ if (bump) {
     die(`cargo update exited ${updated.status ?? 'on a signal'}.`)
   }
   changed.push('Cargo.lock')
+  // The npm manifest versions changed, so resync the workspace lockfile — a
+  // release must never leave pnpm-lock.yaml drifted (a dirty lock blocks the
+  // next release and ships stale `link:` specifiers).
+  const relocked = spawnSync('pnpm', ['install', '--lockfile-only', '--ignore-scripts'], {
+    cwd: root,
+    stdio: 'inherit',
+  })
+  if (relocked.status !== 0) {
+    die(`pnpm install --lockfile-only exited ${relocked.status ?? 'on a signal'}.`)
+  }
+  if (git(['status', '--porcelain', 'pnpm-lock.yaml']).trim()) {
+    changed.push('pnpm-lock.yaml')
+  }
 }
 
 // Promote the CHANGELOG to the release version (both bump + as-committed paths).
