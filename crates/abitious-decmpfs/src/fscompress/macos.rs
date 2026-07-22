@@ -165,50 +165,17 @@ fn build_resource_fork(raw: &[u8]) -> Option<Vec<u8>> {
   // concatenation needs no re-sort. Stay serial for a handful of blocks, where
   // thread setup would cost more than it saves. No thread-pool dep — std scoped
   // threads keep the macOS stub dependency-free.
-  let blocks: Vec<Vec<u8>> = {
-    // DECMPFS_SERIAL forces the single-thread path — a deterministic escape hatch
-    // (and the A/B baseline for the parallel win).
-    let workers = if std::env::var_os("DECMPFS_SERIAL").is_some() {
-      1
-    } else {
-      std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1)
-        .min(num_blocks)
-    };
-    if workers <= 1 || num_blocks < 8 {
-      let mut scratch = vec![0u8; scratch_len];
-      raw
-        .chunks(BLOCK)
-        .map(|chunk| compress_block(chunk, &mut scratch))
-        .collect::<Option<Vec<Vec<u8>>>>()?
-    } else {
-      let bytes_per_worker = num_blocks.div_ceil(workers) * BLOCK;
-      let parts: Vec<Option<Vec<Vec<u8>>>> = std::thread::scope(|scope| {
-        let handles: Vec<_> = raw
-          .chunks(bytes_per_worker)
-          .map(|region| {
-            scope.spawn(move || {
-              let mut scratch = vec![0u8; scratch_len];
-              region
-                .chunks(BLOCK)
-                .map(|chunk| compress_block(chunk, &mut scratch))
-                .collect::<Option<Vec<Vec<u8>>>>()
-            })
-          })
-          .collect();
-        handles
-          .into_iter()
-          .map(|h| h.join().ok().flatten())
-          .collect()
-      });
-      let mut out = Vec::with_capacity(num_blocks);
-      for part in parts {
-        out.extend(part?);
-      }
-      out
-    }
+  // DECMPFS_SERIAL forces the single-thread path — a deterministic escape hatch (and the
+  // A/B baseline for the parallel win); otherwise fan across the host's cores.
+  let workers = if std::env::var_os("DECMPFS_SERIAL").is_some() {
+    1
+  } else {
+    std::thread::available_parallelism()
+      .map(|n| n.get())
+      .unwrap_or(1)
+      .min(num_blocks)
   };
+  let blocks = compress_blocks(raw, num_blocks, workers, scratch_len)?;
 
   let table_len = (num_blocks + 1) * 4;
   let mut out = Vec::with_capacity(table_len + blocks.iter().map(Vec::len).sum::<usize>());
@@ -221,6 +188,51 @@ fn build_resource_fork(raw: &[u8]) -> Option<Vec<u8>> {
   }
   for block in &blocks {
     out.extend_from_slice(block);
+  }
+  Some(out)
+}
+
+/// LZVN-encode `raw` into per-`BLOCK` (64 KiB) frames, fanning across `workers` scoped
+/// threads (each with its OWN libcompression scratch) when more than one is requested and
+/// there are enough blocks to amortize thread setup; otherwise a single-scratch serial pass.
+/// Split from [`build_resource_fork`]'s env/core policy so the parallel fan-out is unit-tested
+/// with an explicit worker count regardless of the host's core count (the coverage runner may
+/// report a single core). Serial and parallel produce byte-identical output.
+fn compress_blocks(
+  raw: &[u8],
+  num_blocks: usize,
+  workers: usize,
+  scratch_len: usize,
+) -> Option<Vec<Vec<u8>>> {
+  if workers <= 1 || num_blocks < 8 {
+    let mut scratch = vec![0u8; scratch_len];
+    return raw
+      .chunks(BLOCK)
+      .map(|chunk| compress_block(chunk, &mut scratch))
+      .collect::<Option<Vec<Vec<u8>>>>();
+  }
+  let bytes_per_worker = num_blocks.div_ceil(workers) * BLOCK;
+  let parts: Vec<Option<Vec<Vec<u8>>>> = std::thread::scope(|scope| {
+    let handles: Vec<_> = raw
+      .chunks(bytes_per_worker)
+      .map(|region| {
+        scope.spawn(move || {
+          let mut scratch = vec![0u8; scratch_len];
+          region
+            .chunks(BLOCK)
+            .map(|chunk| compress_block(chunk, &mut scratch))
+            .collect::<Option<Vec<Vec<u8>>>>()
+        })
+      })
+      .collect();
+    handles
+      .into_iter()
+      .map(|h| h.join().ok().flatten())
+      .collect()
+  });
+  let mut out = Vec::with_capacity(num_blocks);
+  for part in parts {
+    out.extend(part?);
   }
   Some(out)
 }
@@ -539,6 +551,24 @@ mod tests {
       let last = u32::from_le_bytes(rf[last_idx..last_idx + 4].try_into().unwrap()) as usize;
       assert_eq!(last, rf.len(), "size {size}: last offset != buffer length");
     }
+  }
+
+  #[test]
+  fn compress_blocks_parallel_fan_out_matches_serial() {
+    // Force the multi-worker scoped-thread path deterministically — independent of the host's
+    // core count (the coverage runner may report a single core) — with >= 8 blocks and an
+    // explicit worker count > 1. Its output must be byte-identical to the serial pass, since
+    // the block boundaries and LZVN frames are the same either way.
+    let raw = vec![0x41u8; BLOCK * 10]; // 10 blocks (>= the 8-block parallel threshold)
+    let scratch_len = unsafe { compression_encode_scratch_buffer_size(COMPRESSION_LZVN) };
+    let num_blocks = raw.len().div_ceil(BLOCK);
+    let parallel = compress_blocks(&raw, num_blocks, 4, scratch_len).expect("parallel encodes");
+    let serial = compress_blocks(&raw, num_blocks, 1, scratch_len).expect("serial encodes");
+    assert_eq!(
+      parallel, serial,
+      "the parallel fan-out must produce byte-identical blocks to the serial pass"
+    );
+    assert_eq!(parallel.len(), num_blocks, "one frame per 64 KiB block");
   }
 
   #[test]
