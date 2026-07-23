@@ -38,10 +38,16 @@ export function workspaceVersion(cargoToml: string): string | undefined {
 export function bumpWorkspaceCargo(cargoToml: string, version: string): string {
   return cargoToml
     .replace(
+      // (1) the `[workspace.package]` header plus everything up to its
+      // `version = "` key (captured to re-emit), (2) the old version between
+      // the quotes (replaced), (3) the closing quote (captured).
       /(\[workspace\.package\][^[]*?\nversion\s*=\s*")[^"]+(")/,
       `$1${version}$2`,
     )
     .replace(
+      // (1) an internal dep pin `path = "crates/…", version = "` (captured),
+      // (2) the old version between the quotes (replaced), (3) the closing
+      // quote (captured).
       /(path = "crates\/[^"]+", version = ")[^"]+(")/g,
       `$1${version}$2`,
     )
@@ -54,14 +60,16 @@ export function bumpNpmManifest(
   version: string,
   scope: string,
 ): string {
-  const pkg = JSON.parse(json) as {
-    version?: string
+  const pkg: {
+    version?: string | undefined
     optionalDependencies?: Record<string, string> | undefined
-  }
+  } = JSON.parse(json)
   pkg.version = version
   const opt = pkg.optionalDependencies
   if (opt) {
-    for (const name of Object.keys(opt)) {
+    const names = Object.keys(opt)
+    for (let i = 0, { length } = names; i < length; i += 1) {
+      const name = names[i]!
       if (name.startsWith(scope)) {
         opt[name] = version
       }
@@ -80,7 +88,10 @@ export interface ChangelogPromotion {
 // Promote the CHANGELOG for a release: keep an existing `## <version>` verbatim;
 // else rename the `## [Unreleased]` heading to `## <version>`; else insert a
 // TODO stub the release gate will reject until filled.
-export function promoteChangelog(src: string, version: string): ChangelogPromotion {
+export function promoteChangelog(
+  src: string,
+  version: string,
+): ChangelogPromotion {
   if (src.includes(`## ${version}`)) {
     return { text: src, changed: false, hasSection: true }
   }
@@ -105,6 +116,8 @@ export function promoteChangelog(src: string, version: string): ChangelogPromoti
 // release gate to confirm it's real (non-empty, no TODO stub).
 export function changelogSection(src: string, version: string): string {
   const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = src.match(new RegExp(`\\n## ${escaped}\\n(?<body>[\\s\\S]*?)(?:\\n## |$)`))
+  const match = src.match(
+    new RegExp(`\\n## ${escaped}\\n(?<body>[\\s\\S]*?)(?:\\n## |$)`),
+  )
   return (match?.groups?.['body'] ?? '').trim()
 }

@@ -40,9 +40,9 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
 # panic="abort"/overflow-checks=false. Turn assertions + overflow checks back ON
 # so silent wraps / assertion violations become crash findings.
 [profile.release]
-debug = 1                # symbolized backtraces in crash reports
-debug-assertions = true  # assertion violations become findings
-overflow-checks = true   # silent wrapping arithmetic becomes a crash finding
+debug = 1 # symbolized backtraces in crash reports
+debug-assertions = true # assertion violations become findings
+overflow-checks = true # silent wrapping arithmetic becomes a crash finding
 
 [[bin]]
 name = "read_hybrid_node"

@@ -62,7 +62,11 @@ export interface SupportedTarget {
  * The napi-rs addon abi suffix for a host: `-gnu` (glibc Linux), `-musl` (musl
  * Linux), `-msvc` (Windows), or `''` (macOS).
  */
-export function abiSuffix(platform: string, report?: Host['report']): string
+export function abiSuffix(
+  platform: string,
+  // oxlint-disable-next-line typescript/no-duplicate-type-constituents -- fleet optional-explicit-undefined convention: the explicit | undefined on an optional is intentional, not redundant.
+  report?: Host['report'] | undefined,
+): string
 
 /**
  * Map a host to its `@abitious/<triple>` triple (`<platform>-<arch>[-<abi>]`).

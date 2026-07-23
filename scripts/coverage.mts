@@ -32,9 +32,9 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 function runSync(
   command: string,
   args: readonly string[],
-  options: SpawnSyncOptions,
+  config: SpawnSyncOptions,
 ): string {
-  const result = spawnSync(command, args, options)
+  const result = spawnSync(command, args, config)
   if (result.error) {
     throw result.error
   }
@@ -233,7 +233,6 @@ if (process.argv.includes('--badge')) {
       'run `node scripts/coverage.mts --json --summary-only` and inspect the output',
     )
   }
-  const linePct = Math.round(totals.lines.percent)
   const regionPct = Math.round(totals.regions.percent)
   const out = path.join(root, 'assets', 'coverage-score.svg')
   mkdirSync(path.dirname(out), { recursive: true })

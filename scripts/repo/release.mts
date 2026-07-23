@@ -12,7 +12,7 @@
 // semver (0.1.1). The CHANGELOG `## [Unreleased]` is promoted to `## <version>`.
 // Pure logic lives in release-lib.mts (unit-tested, no I/O).
 
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -40,16 +40,24 @@ function die(msg: string): never {
   process.exit(1)
 }
 
-function git(args: string[], options: { stdio?: 'inherit' | 'pipe' } = {}): string {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', ...options })
+function git(
+  args: string[],
+  options: { stdio?: 'inherit' | 'pipe' | undefined } = {},
+): string {
+  const result = spawnSync('git', args, {
+    cwd: root,
+    encoding: 'utf8',
+    ...options,
+  })
   if (result.status !== 0) {
     die(`git ${args[0]} exited ${result.status ?? 'on a signal'}.`)
   }
-  return String(result.stdout ?? '')
+  return result.stdout ?? ''
 }
 
 const read = (rel: string): string => readFileSync(path.join(root, rel), 'utf8')
-const write = (rel: string, src: string): void => writeFileSync(path.join(root, rel), src)
+const write = (rel: string, src: string): void =>
+  writeFileSync(path.join(root, rel), src)
 
 if (arg && !/^\d+\.\d+\.\d+$/.test(arg)) {
   die(
@@ -101,7 +109,8 @@ const changed: string[] = []
 if (bump) {
   write('Cargo.toml', bumpWorkspaceCargo(read('Cargo.toml'), version))
   changed.push('Cargo.toml')
-  for (const rel of npmManifests) {
+  for (let i = 0, { length } = npmManifests; i < length; i += 1) {
+    const rel = npmManifests[i]!
     write(rel, bumpNpmManifest(read(rel), version, SCOPE))
     changed.push(rel)
   }
@@ -116,12 +125,18 @@ if (bump) {
   // The npm manifest versions changed, so resync the workspace lockfile — a
   // release must never leave pnpm-lock.yaml drifted (a dirty lock blocks the
   // next release and ships stale `link:` specifiers).
-  const relocked = spawnSync('pnpm', ['install', '--lockfile-only', '--ignore-scripts'], {
-    cwd: root,
-    stdio: 'inherit',
-  })
+  const relocked = spawnSync(
+    'pnpm',
+    ['install', '--lockfile-only', '--ignore-scripts'],
+    {
+      cwd: root,
+      stdio: 'inherit',
+    },
+  )
   if (relocked.status !== 0) {
-    die(`pnpm install --lockfile-only exited ${relocked.status ?? 'on a signal'}.`)
+    die(
+      `pnpm install --lockfile-only exited ${relocked.status ?? 'on a signal'}.`,
+    )
   }
   if (git(['status', '--porcelain', 'pnpm-lock.yaml']).trim()) {
     changed.push('pnpm-lock.yaml')
@@ -146,8 +161,10 @@ if (!section || /TODO: describe the user-visible changes/.test(section)) {
 if (workspaceVersion(read('Cargo.toml')) !== version) {
   die(`Cargo.toml [workspace.package] version is not ${version} after edit.`)
 }
-for (const rel of npmManifests) {
-  const pkgVersion = (JSON.parse(read(rel)) as { version?: string }).version
+for (let i = 0, { length } = npmManifests; i < length; i += 1) {
+  const rel = npmManifests[i]!
+  const manifest: { version?: string | undefined } = JSON.parse(read(rel))
+  const pkgVersion = manifest.version
   if (pkgVersion !== version) {
     die(`${rel} version is ${pkgVersion}, expected ${version}.`)
   }
@@ -164,10 +181,14 @@ const tag = `v${version}`
 // — refuse to move it. A tag with no Release (e.g. a failed release run) is safe
 // to re-fire.
 if (push) {
-  const released = spawnSync('gh', ['release', 'view', tag, '--json', 'tagName'], {
-    cwd: root,
-    encoding: 'utf8',
-  })
+  const released = spawnSync(
+    'gh',
+    ['release', 'view', tag, '--json', 'tagName'],
+    {
+      cwd: root,
+      encoding: 'utf8',
+    },
+  )
   if (released.status === 0) {
     die(
       `GitHub Release ${tag} already exists and is immutable — bump the version ` +
