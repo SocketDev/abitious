@@ -7,8 +7,8 @@
 // Each supported target ships as an optional dependency `@abitious/<triple>` carrying
 // that platform's prebuilt stub `.node` + host `abi` producer binary, so a package
 // manager installs only the one matching this host. The supported set + the stub
-// filename come from targets.generated.json — generated from scripts/targets.mts by
-// scripts/gen-packages.mts (the single source of truth). Keep the abi-suffix rule in
+// filename come from targets.generated.json — generated from scripts/repo/targets.mts by
+// scripts/repo/gen-packages.mts (the single source of truth). Keep the abi-suffix rule in
 // lockstep with napi-rs's loader and crates/abitious/src/triple.rs.
 
 const { dirname, join } = require('node:path')

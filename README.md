@@ -18,7 +18,7 @@ real addon zstd-compressed inside a signed object-file section:
   smallest on-disk footprint.
 
 Both paths read **one frozen section format** — see
-[`docs/PRESSED-DATA-FORMAT.md`](docs/PRESSED-DATA-FORMAT.md). It mirrors the
+[`docs/pressed-data-format.md`](docs/pressed-data-format.md). It mirrors the
 format `decmpfs` reads (`unwrap_if_hybrid`) and `socket-btm` produces, so the
 whole ecosystem interoperates.
 
@@ -51,7 +51,7 @@ abi inspect --decompress <file.node> [-o <out.node>]
 One prebuilt stub + host `abi` per platform ship as `@abitious/<triple>` npm packages
 (darwin/linux/win32 × x64/arm64, glibc/musl) plus an `@abitious/cli` meta-package; the
 package layout + CI matrix are DERIVED from a single source of truth
-(`scripts/targets.mts`) so a target is added in exactly one place. The four Rust crates
+(`scripts/repo/targets.mts`) so a target is added in exactly one place. The four Rust crates
 also publish to crates.io via Trusted Publishing (OIDC, no long-lived token).
 
 ## Status

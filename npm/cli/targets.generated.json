@@ -1,5 +1,5 @@
 {
-  "_generated": "scripts/gen-packages.mts from scripts/targets.mts — do not edit",
+  "_generated": "scripts/repo/gen-packages.mts from scripts/repo/targets.mts — do not edit",
   "stubNode": "stub.node",
   "targets": [
     {

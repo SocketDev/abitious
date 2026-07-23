@@ -13,7 +13,7 @@
 # apple-codesign/reqwest/tokio/hyper) — the fuzz targets link the exact same
 # dep-lean reader graph the shipped stub/reader use. The untrusted-input surface
 # is the hybrid `.node` reader + the pressed-data section decoder; see
-# docs/PRESSED-DATA-FORMAT.md.
+# docs/pressed-data-format.md.
 
 [workspace]
 

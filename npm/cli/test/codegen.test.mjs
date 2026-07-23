@@ -1,4 +1,4 @@
-// Unit tests for the codegen (scripts/gen-packages.mts) — the single-source-of-truth
+// Unit tests for the codegen (scripts/repo/gen-packages.mts) — the single-source-of-truth
 // discipline: --check must report in-sync (proving the committed generated files match
 // targets.mts), and --print-matrix must derive the CI matrix from the same list with
 // darwin targets on macOS runners. Run: node --test.
@@ -12,7 +12,7 @@ import { spawnSync } from '@socketsecurity/lib-stable/process/spawn/child'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(here, '..', '..', '..')
-const gen = path.join(repoRoot, 'scripts', 'gen-packages.mts')
+const gen = path.join(repoRoot, 'scripts', 'repo', 'gen-packages.mts')
 
 function run(...args) {
   const result = spawnSync(process.execPath, [gen, ...args], {

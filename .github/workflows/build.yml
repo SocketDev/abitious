@@ -6,7 +6,7 @@
 # github-release.yml, and the npm platform packages are built + published by
 # npm-publish.yml — so this workflow does NOT trigger on `release: published`.
 #
-# The build MATRIX is DERIVED from the single source of truth (scripts/targets.mts) at CI
+# The build MATRIX is DERIVED from the single source of truth (scripts/repo/targets.mts) at CI
 # time: the `prepare` job runs `gen-packages --print-matrix` (the tier-1 subset) and the
 # `build` job consumes it via `fromJSON`, so adding/removing a target in targets.mts changes
 # the matrix with no edit here (the cross-language coupling is genuine, never a duplicated
@@ -86,11 +86,11 @@ jobs:
         with:
           node-version: 24
       - name: gen-packages --check (out-of-sync with targets.mts fails)
-        run: node scripts/gen-packages.mts --check
+        run: node scripts/repo/gen-packages.mts --check
       # Fleet pnpm: a pinned, SRI-verified pnpm on PATH (sets
       # npm_config_manage_package_manager_versions=false) — NOT corepack (a fleet-wide
       # wheelhouse rule) and not `npm i -g pnpm`.
-      - uses: ./.github/actions/setup-pnpm
+      - uses: ./.github/actions/repo/setup-pnpm
       - name: install devDeps
         run: pnpm install --frozen-lockfile
       - name: node --test (loader-resolution + codegen unit tests)
@@ -113,10 +113,10 @@ jobs:
         with:
           node-version: 24
       - id: gen
-        name: derive matrix from scripts/targets.mts
+        name: derive matrix from scripts/repo/targets.mts
         run: |
           set -euo pipefail
-          matrix="$(node scripts/gen-packages.mts --print-matrix)"
+          matrix="$(node scripts/repo/gen-packages.mts --print-matrix)"
           echo "matrix={\"include\":${matrix}}" >> "$GITHUB_OUTPUT"
 
   # Cross-build the stub cdylib + host producer per target and package the @abitious/<triple>.
@@ -166,7 +166,7 @@ jobs:
           BIN: ${{ matrix.bin }}
         run: |
           set -euo pipefail
-          node scripts/gen-packages.mts
+          node scripts/repo/gen-packages.mts
           dest="npm/${TRIPLE}"
           out="target/${RUST_TARGET}/release"
           cp "${out}/${STUB_ARTIFACT}" "${dest}/stub.node"

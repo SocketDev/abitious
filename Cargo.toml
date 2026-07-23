@@ -18,7 +18,7 @@ members = [
 exclude = ["fuzz"]
 
 # The 0.x version signals the API is pre-stable; the pressed-data SECTION FORMAT
-# is the real frozen compatibility contract (docs/PRESSED-DATA-FORMAT.md). MIT.
+# is the real frozen compatibility contract (docs/pressed-data-format.md). MIT.
 [workspace.package]
 version = "0.1.0"
 edition = "2021"

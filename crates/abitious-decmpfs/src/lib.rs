@@ -22,7 +22,7 @@
 //! This is the **mirror-image ABI** of `decmpfs`'s reader (`unwrap_if_hybrid` in
 //! `decmpfs/crates/decmpfs/src/addon.rs`) and `socket-btm`'s producer
 //! (`compressed-binary-format-constants.mts` / `smol_segment_reader.c`). The
-//! format is **frozen** — see `docs/PRESSED-DATA-FORMAT.md`. abitious is the
+//! format is **frozen** — see `docs/pressed-data-format.md`. abitious is the
 //! producer half decmpfs never had (`build_section_payload`) plus a byte-faithful
 //! copy of the reader so both live in one crate.
 //!
@@ -294,7 +294,7 @@ pub fn unwrap_if_hybrid(content: &[u8]) -> Option<Vec<u8>> {
 /// payload) plus `payload_at`, the byte offset the payload begins at. The frozen
 /// field offsets live here in exactly ONE place, shared by [`decode_pressed_data`]
 /// (which then decompresses) and [`read_section_info`] (which never does), so the two
-/// readers can never drift from the layout in `docs/PRESSED-DATA-FORMAT.md`.
+/// readers can never drift from the layout in `docs/pressed-data-format.md`.
 struct ParsedHeader {
   compressed_size: u64,
   uncompressed_size: u64,
