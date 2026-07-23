@@ -1,12 +1,10 @@
 {
+  "extends": "./.config/fleet/tsconfig.base.json",
   "compilerOptions": {
-    "strict": true,
-    "noEmit": true,
-    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
     "module": "nodenext",
     "moduleResolution": "nodenext",
-    "target": "es2023",
-    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "types": ["node"]
   },
   "include": ["scripts/**/*.mts", "npm/cli/index.d.cts"]
