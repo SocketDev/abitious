@@ -20,6 +20,7 @@
 
 import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
+import process from 'node:process'
 
 import { errorMessage } from '@socketsecurity/lib/errors/message'
 import { safeMkdir } from '@socketsecurity/lib/fs/safe'
@@ -50,7 +51,7 @@ export function clearChecksumCache(): void {
   checksumCache.clear()
 }
 
-export interface GetChecksumsOptions {
+export interface GetChecksumsConfig {
   /**
    * The producing repo whose releases we're verifying against.
    */
@@ -90,7 +91,7 @@ export interface GetChecksumsOptions {
  * Network failures fall back to embedded checksums when available.
  */
 export async function getReleaseChecksums(
-  config: GetChecksumsOptions,
+  config: GetChecksumsConfig,
 ): Promise<ChecksumsResult> {
   const {
     preferEmbedded = true,
