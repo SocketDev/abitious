@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Pre-1.0 (`0.x`), the Rust API may change between minor versions; the pressed-data
 section format is the frozen compatibility contract.
 
-## [Unreleased]
+## 0.1.0
 
 ### Added
 
