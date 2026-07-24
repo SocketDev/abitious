@@ -100,7 +100,7 @@ jobs:
           persist-credentials: false
       # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-07-12); keep the
       # `toolchain:` here in lockstep with it + build.yml.
-      - uses: dtolnay/rust-toolchain@efcb852328a9f50117170cc43094fb6f09eaf1ae # nightly
+      - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
         with:
           toolchain: nightly-2026-07-12
           components: rustfmt, clippy
@@ -126,7 +126,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0 (2026-06-29)
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@efcb852328a9f50117170cc43094fb6f09eaf1ae # nightly
+      - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
         with:
           toolchain: nightly-2026-07-12
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
