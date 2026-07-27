@@ -51,96 +51,33 @@ jobs:
           persist-credentials: false
       - name: Checkout
         uses: ./.github/actions/fleet/checkout
+      # The resolved tag is the single input every later step trusts — it
+      # feeds the registry-liveness gate as TAG and names the release cut, so
+      # wrong resolution here silently bypasses the publish-before-release
+      # order rule. The branch logic lives in the dependency-free
+      # scripts/fleet/resolve-release-tag.mjs (system Node only — no install
+      # has run here), where the wheelhouse unit suite regression-tests it;
+      # byte-parity with the inline predecessor is pinned per scenario.
       - name: Resolve tag
         id: tag
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          if [ "${EVENT_NAME}" = "push" ]; then
-            TAG="${REF_NAME}"
-          elif [ -n "${INPUT_TAG}" ]; then
-            TAG="${INPUT_TAG}"
-          else
-            echo "× a manual dispatch needs the tag input (tag pushes resolve it from the ref)." >&2
-            echo "  Fix: re-dispatch with tag: v<version> (the tag must already be pushed)." >&2
-            exit 1
-          fi
-          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+        run: node scripts/fleet/resolve-release-tag.mjs
       # Belt-and-braces publish-before-release gate: refuse to cut when the
       # tagged version is not actually live on its registry. Runs only when a
       # real cut would happen (tag push, or dispatch with release: true) so a
-      # dry-run plan stays inspectable pre-publish. curl (not npm view) — the
-      # runner has no install here and npm trips repos' pnpm devEngines.
+      # dry-run plan stays inspectable pre-publish. The branch logic lives in
+      # the dependency-free scripts/fleet/registry-liveness-gate.mjs (system
+      # Node only — no install has run here), where the wheelhouse unit suite
+      # regression-tests it; the inline predecessor was untestable and shipped
+      # a regressed single-crate-only gate to cargo workspaces in v1.0.13.
       - name: Registry publish is live
         if: ${{ github.event_name == 'push' || inputs.release }}
         env:
           TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          VERSION="${TAG#v}"
-          if [ -f package.json ] && [ "$(node -p "require('./package.json').private === true")" != "true" ]; then
-            NAME="$(node -p "require('./package.json').name")"
-            if ! curl -fsS -o /dev/null "https://registry.npmjs.org/${NAME}/${VERSION}"; then
-              echo "× ${NAME}@${VERSION} is not resolvable on npm — refusing to cut the GH release before the registry publish." >&2
-              echo "  A STAGED package is not published. Fix: approve/complete the publish first, then re-run." >&2
-              exit 1
-            fi
-            echo "✓ ${NAME}@${VERSION} is live on npm."
-          elif [ -f Cargo.toml ]; then
-            # Single crate: the root [package] name. Workspace: every
-            # publishable member's name (publish = false members are skipped).
-            # Empty output + exit 0 = nothing publishable (stub-only
-            # workspace); a malformed manifest fails LOUD instead of dying
-            # silently under `set -e`.
-            NAMES="$(node -e '
-              const fs = require("node:fs")
-              const root = fs.readFileSync("Cargo.toml", "utf8")
-              const pkgName = /^\[package\][^]*?^name *= *"([^"]+)"/m.exec(root)
-              if (pkgName) {
-                console.log(pkgName[1])
-                process.exit(0)
-              }
-              const members = /^members *= *\[([^\]]*)\]/m.exec(root)
-              if (!members) {
-                console.error("× Cargo.toml has neither a [package] name nor a [workspace] members list — cannot derive crate names for the registry-liveness gate.")
-                console.error("  Fix: give the root manifest a [package] section or a members = [...] list.")
-                process.exit(1)
-              }
-              const entries = [...members[1].matchAll(/"([^"]+)"/g)].map(m => m[1])
-              const dirs = entries.flatMap(e => e.includes("*") ? fs.globSync(e) : [e])
-              const names = []
-              for (const dir of dirs) {
-                const manifestPath = `${dir}/Cargo.toml`
-                if (!fs.existsSync(manifestPath)) { continue }
-                const manifest = fs.readFileSync(manifestPath, "utf8")
-                if (/^publish *= *false/m.test(manifest)) { continue }
-                const name = /^name *= *"([^"]+)"/m.exec(manifest)
-                if (name) { names.push(name[1]) }
-              }
-              console.log(names.join("\n"))
-            ')"
-            if [ -z "${NAMES}" ]; then
-              echo "No publishable crate in the workspace — skipping the crates.io liveness gate."
-            fi
-            for NAME in ${NAMES}; do
-              case "${#NAME}" in
-                1) IDX="1/${NAME}" ;;
-                2) IDX="2/${NAME}" ;;
-                3) IDX="3/${NAME:0:1}/${NAME}" ;;
-                *) IDX="${NAME:0:2}/${NAME:2:2}/${NAME}" ;;
-              esac
-              if ! curl -fsS "https://index.crates.io/${IDX}" | grep -q "\"vers\":\"${VERSION}\""; then
-                echo "× ${NAME}@${VERSION} is not in the crates.io index — refusing to cut the GH release before the registry publish." >&2
-                exit 1
-              fi
-              echo "✓ ${NAME}@${VERSION} is live on crates.io."
-            done
-          else
-            echo "No public npm package or crate manifest — skipping the registry-liveness gate (github-release-only repo)."
-          fi
+        run: node scripts/fleet/registry-liveness-gate.mjs
       - name: Mint release-app token
         id: app-token
         uses: ./.github/actions/fleet/github-release-app-token
