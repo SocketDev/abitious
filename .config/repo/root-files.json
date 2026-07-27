@@ -1,0 +1,5 @@
+{
+  "allow": {
+    "npm": "per-platform npm packaging dirs (cli + prebuilt binary packages) that npm publish tooling anchors at the repo root"
+  }
+}
