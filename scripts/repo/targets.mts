@@ -72,7 +72,7 @@ export const TARGETS: Target[] = [
     os: 'darwin',
     cpu: 'x64',
     rust: 'x86_64-apple-darwin',
-    runner: 'macos-13',
+    runner: 'macos-15-intel',
     tier1: true,
   },
   {
