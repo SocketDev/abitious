@@ -3,9 +3,10 @@
 // code, not test fixtures/harness. That attribute needs the unstable
 // `coverage_attribute` feature — only NIGHTLY rustc accepts it, and only under a
 // nightly toolchain does cargo-llvm-cov set the `coverage_nightly` cfg. On stable
-// the markers are inert (tests would inflate the number) and the feature gate
-// errors, so this script REQUIRES nightly + the llvm-tools component and fails
-// loud (What / Where / Saw-vs-wanted / Fix) rather than reporting a wrong number.
+// the markers are inert and the feature gate errors, so this script REQUIRES
+// nightly + the llvm-tools component and fails loud (What / Where /
+// Saw-vs-wanted / Fix) rather than reporting a wrong number. Inert markers would
+// let the test modules inflate the number.
 //
 //   node scripts/repo/coverage.mts                 # full annotated report (--workspace)
 //   node scripts/repo/coverage.mts --summary-only  # table only

@@ -81,7 +81,8 @@ export function bumpNpmManifest(
 export interface ChangelogPromotion {
   text: string
   changed: boolean
-  // Whether the result has a real `## <version>` section (vs a stub needing prose).
+  // Whether the result has a real `## <version>` section rather than a stub that
+  // still needs prose.
   hasSection: boolean
 }
 

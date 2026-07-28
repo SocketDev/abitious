@@ -1,4 +1,5 @@
-// Codegen driven ENTIRELY by scripts/repo/targets.mts (the single source of truth):
+// scripts/repo/targets.mts is the single source of truth. This codegen is driven
+// ENTIRELY by it:
 //
 //   node scripts/repo/gen-packages.mts                  write all generated files
 //   node scripts/repo/gen-packages.mts --check          fail (exit 1) if any is out of sync
@@ -108,9 +109,10 @@ function loaderData(): unknown {
  * The CI build matrix `include:` array, derived from TARGETS. Default
  * (`all=false`) is the tier-1 subset — native on their runner, no cross C
  * toolchain — for the fast push/PR CI (build.yml). `all=true` is the full,
- * unfiltered set (every target ships a prebuilt) for the release build
- * (github-release.yml + npm-publish.yml), where the musl C toolchain is
- * installed per-target. Either way the triple list is never duplicated in YAML
+ * unfiltered set for the release build (github-release.yml + npm-publish.yml),
+ * where the musl C toolchain is installed per-target. Every target ships a
+ * prebuilt, so the release set is never filtered down. Either way the triple
+ * list is never duplicated in YAML
  * — both are single-sourced from TARGETS.
  */
 function matrix(all = false): unknown[] {

@@ -75,8 +75,9 @@ export function hostTriple(host: Host): string
 
 /**
  * Resolve the installed platform package for a host. `resolve` resolves
- * `<pkg>/package.json` to an absolute path (throws when not installed). Throws
- * an actionable error when no matching optional dependency is present.
+ * `<pkg>/package.json` to an absolute path and throws when the package is not
+ * installed. Throws an actionable error when no matching optional dependency is
+ * present.
  */
 export function resolvePlatform(
   opts: Host & { resolve: (request: string) => string },

@@ -4,7 +4,8 @@
  *   pnpm/sfw/zizmor install steps. Built-in `fetch` follows redirects
  *   automatically (github.com → objects.githubusercontent.com),
  *   `node:crypto.createHash` computes the digest in-process, and tar/unzip
- *   shell out (already preinstalled on every supported runner image). Usage:
+ *   shell out. Those tools are already preinstalled on every supported runner
+ *   image. Usage:
  *   node install-tool.mjs <url> <integrity> <dest-dir> [<bin-name>] <integrity>
  *   is a Subresource Integrity string: `<algo>-<base64>`. Examples:
  *   `sha256-67PM...=`, `sha512-l/kG...==`. The algorithm is parsed from the
@@ -18,7 +19,7 @@
  *   - Aborts and removes the file if integrity mismatches.
  *   - Extracts .tar.gz/.tgz with tar, .zip with unzip (POSIX) or Expand-Archive
  *     (Windows). Removes the archive after extracting.
- *   - For non-archive assets (bare binaries like sfw): the asset IS the binary —
+ *   - A non-archive asset is a bare binary such as sfw. The asset IS the binary —
  *     chmod +x it and rename to <bin-name> if provided. Exit codes: 0 success 1
  *     download or extraction failed 2 integrity mismatch (stderr names expected
  *     vs actual + the path)

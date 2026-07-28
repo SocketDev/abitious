@@ -8,8 +8,9 @@
 // that platform's prebuilt stub `.node` + host `abi` producer binary, so a package
 // manager installs only the one matching this host. The supported set + the stub
 // filename come from targets.generated.json — generated from scripts/repo/targets.mts by
-// scripts/repo/gen-packages.mts (the single source of truth). Keep the abi-suffix rule in
-// lockstep with napi-rs's loader and crates/abitious/src/triple.rs.
+// scripts/repo/gen-packages.mts. That targets.mts file is the single source of truth.
+// Keep the abi-suffix rule in lockstep with napi-rs's loader and
+// crates/abitious/src/triple.rs.
 
 const { dirname, join } = require('node:path')
 
@@ -74,8 +75,9 @@ function loadPlatform() {
  * @param {string} opts.arch Process.arch.
  * @param {object} [opts.report] Process.report.getReport() (for glibc
  *   detection)
- * @param {(request: string) => string} opts.resolve Resolves `<pkg>/package.json`
- *   to an absolute path (throws when the optional dep is not installed).
+ * @param {(request: string) => string} opts.resolve Resolves
+ *   `<pkg>/package.json` to an absolute path and throws when the optional
+ *   dependency is not installed.
  *
  * @returns {{
  *   triple: string
