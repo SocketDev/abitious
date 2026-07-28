@@ -41,13 +41,16 @@ section format is the frozen compatibility contract.
 ### Fixed
 
 - **`tooling`** — lock fleet hook workspaces
-- **`ci`** — enforce Rust fleet formatting
 - **`tooling`** — satisfy fleet quality gates
-- **`deps`** — refresh canonical Node types
 - **`musl`** — build the stub cdylib dynamically on musl (-crt-static=false)
 - address the quality-scan findings (security, 8-platform release, docs)
+- **`windows`** — enable the windows-sys features fscompress needs
+- **`marker`** — repo.type solo (0 JS packages/*, matching decmpfs + the detector)
+
+### Internal
+
+- **`ci`** — enforce Rust fleet formatting
+- **`deps`** — refresh canonical Node types
 - **`ci`** — publish environments are cargo-publish / npm-publish (not release)
 - **`ci`** — linkWorkspacePackages so cli's optionalDeps land in the lock
 - **`ci`** — regenerate pnpm-lock.yaml for pnpm 11.10.0 + drop packageManager field
-- **`windows`** — enable the windows-sys features fscompress needs
-- **`marker`** — repo.type solo (0 JS packages/*, matching decmpfs + the detector)
