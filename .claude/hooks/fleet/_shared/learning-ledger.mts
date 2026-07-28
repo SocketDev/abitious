@@ -14,7 +14,7 @@
  *   detection here is regex + counters only, storage is local, nothing hits the
  *   network or an LLM.
  *
- *   Three parts (mirrors active-edits-ledger's split so tests run IO-free):
+ *   Three parts, mirrors active-edits-ledger's split so tests run IO-free:
  *   1. Taxonomy + pure text ops (`normalizeLearning`, `isSimilarLearning`).
  *   2. Pure correction-signal detection (`detectCorrectionSignal`).
  *   3. Thin fs shell (`recordOccurrence`, `readLedger`, `pruneLedger`) over a
@@ -29,9 +29,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
+import { resolveRepoRoot } from './repo-root.mts'
+
 // The canonical learning taxonomy. Caliber ships two divergent vocabularies
 // (an auto-distill set and a manual `save-learning` set); this reconciles them
-// into ONE, taking the auto set (marked authoritative in its prompt) as the
+// into ONE, taking the auto set, marked authoritative in its prompt, as the
 // base and folding in the one genuinely distinct manual kind (`anti-pattern`).
 // `correction` is the highest-value signal — a human overriding the agent.
 export const LEARNING_TYPES = [
@@ -83,7 +85,7 @@ export function normalizeLearning(text: string): string {
  * Two lessons are "the same" when, after normalization, the shorter is a
  * substring of the longer AND their length ratio clears the threshold. A cheap,
  * deterministic near-duplicate test — no embeddings, no LLM. Empty strings
- * never match (a blank key must not collapse every entry).
+ * never match, a blank key must not collapse every entry.
  */
 export function isSimilarLearning(
   a: string,
@@ -108,7 +110,7 @@ export function isSimilarLearning(
 // ── Pure correction-signal detection ────────────────────────────────────────
 
 // Phrases that mark a human OVERRIDING the agent — the highest-value codify
-// signal (adopted from Caliber's correction detector). Regex only; the LLM in
+// signal, adopted from Caliber's correction detector. Regex only; the LLM in
 // Caliber only refined wording, never did the detection.
 export const CORRECTION_PHRASE_PATTERNS: readonly RegExp[] = [
   /\bno,?\s+(?:use|do|don'?t|not)\b/i,
@@ -156,12 +158,21 @@ export interface LearningLedger {
 const EMPTY_LEDGER: LearningLedger = { entries: [], updatedAt: 0 }
 
 /**
- * Resolve the store root: `<projectDir>/node_modules/.cache/<store>` when a
- * project dir is available, else the OS temp dir. Pure, no IO.
+ * Resolve the store root: `<repo root of projectDir>/node_modules/.cache/
+ * <store>` when a project dir is available, else the OS temp dir. The
+ * git-toplevel anchor is what keeps the store out of
+ * `template/base/node_modules` when a caller's dir sits under a workspace
+ * glob (see repo-root.mts).
  */
 export function resolveStoreRoot(projectDir: string | undefined): string {
   if (projectDir) {
-    return path.join(projectDir, 'node_modules', '.cache', 'fleet', STORE_NAME)
+    return path.join(
+      resolveRepoRoot(projectDir),
+      'node_modules',
+      '.cache',
+      'fleet',
+      STORE_NAME,
+    )
   }
   return path.join(
     process.env['TMPDIR'] ??

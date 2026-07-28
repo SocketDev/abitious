@@ -9,7 +9,7 @@ import { getSocketAppDir } from '@socketsecurity/lib-stable/paths/socket'
 // install.mts findBrokenShims) MUST scan the same dir — they previously
 // diverged (`_wheelhouse/shims` vs a hardcoded `~/.socket/sfw/shims`), and the
 // shared value itself then pointed at `_wheelhouse/shims`, a dir NO generator
-// writes. The fleet generator (scripts/fleet/setup/setup-tools.mjs) writes
+// writes. The fleet generator (scripts/fleet/setup/tools.mjs) writes
 // shims into `_wheelhouse/bin` — the one PATH entry, where they co-live with
 // the flat racked-tool handles (bin/sfw → rack/sfw/<ver>/sfw).
 export function getShimsDir(): string {
@@ -90,7 +90,7 @@ export function stableTargetFor(target: string): string | undefined {
 }
 
 /**
- * The `…/_dlx/<hash>` root of a dlx target (the whole dir to mirror).
+ * The `…/_dlx/<hash>` root of a dlx target, the whole dir to mirror.
  */
 function dlxRootOf(target: string): string | undefined {
   const norm = normalizePath(target)
@@ -103,7 +103,7 @@ function dlxRootOf(target: string): string | undefined {
 }
 
 /**
- * Every dlx-backed absolute target a shim executes (present or already-evicted)
+ * Every dlx-backed absolute target a shim executes, present or already-evicted
  * — the GC-fragile set to stabilize. Skips shell tokens (`"$@"`, `"$PATH"`).
  */
 export function findDlxBackedTargets(content: string): string[] {

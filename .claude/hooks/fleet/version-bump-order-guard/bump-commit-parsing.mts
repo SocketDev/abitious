@@ -6,14 +6,35 @@ import path from 'node:path'
 
 import { commandsFor } from '../_shared/shell-command.mts'
 
+// The git SUBCOMMAND: the first non-option token, skipping the global
+// value-taking options (`git -C <path> tag …`, `git -c <k=v> tag …`).
+function gitSubcommand(args: readonly string[]): string | undefined {
+  for (let i = 0, { length } = args; i < length; i += 1) {
+    const arg = args[i]!
+    if (arg === '-C' || arg === '-c') {
+      i += 1
+      continue
+    }
+    if (arg.startsWith('-')) {
+      continue
+    }
+    return arg
+  }
+  return undefined
+}
+
 // `git tag <name>` (also `git tag -a`, `git tag -s`, etc.) creating a
-// version tag (`vX.Y.Z`). Parser-based: a real `git` command with a
-// `tag` arg and a version-shaped arg — so a quoted "git tag v1.2.3" in
-// a message or a sibling command's string isn't a false trigger.
+// version tag (`vX.Y.Z`). Parser-based: a real `git` command whose
+// SUBCOMMAND is `tag` with a version-shaped arg — so `git fetch origin
+// tag v1.2.3` (fetching an upstream's tag ref) and a quoted "git tag
+// v1.2.3" in a message or a sibling command's string aren't false
+// triggers.
 const VERSION_ARG_RE = /^v\d+\.\d+\.\d+$/
 export function isVersionTagCommand(command: string): boolean {
   return commandsFor(command, 'git').some(
-    c => c.args.includes('tag') && c.args.some(a => VERSION_ARG_RE.test(a)),
+    c =>
+      gitSubcommand(c.args) === 'tag' &&
+      c.args.some(a => VERSION_ARG_RE.test(a)),
   )
 }
 
@@ -25,8 +46,8 @@ export const BUMP_SUBJECT_RE =
 // `git commit … -m "chore: bump version to X.Y.Z"` — the bump commit itself.
 // Parser-based: a real `git commit` whose `-m`/`--message` value matches the
 // bump-subject shape. The gate runs HERE too, not only at tag time, because the
-// bump commit is the point a still-broken tree (accumulated lint debt) silently
-// lands — by tag time it's already committed (and maybe pushed). A quoted
+// bump commit is the point a still-broken tree, accumulated lint debt, silently
+// lands — by tag time it's already committed, and maybe pushed. A quoted
 // "git commit" inside another command's string isn't a real invocation, so it
 // won't trigger.
 export function bumpCommitMessage(command: string): string | undefined {
@@ -36,7 +57,7 @@ export function bumpCommitMessage(command: string): string | undefined {
     }
     for (let i = 0, { length } = c.args; i < length; i += 1) {
       const arg = c.args[i]!
-      // `-m <msg>` / `--message <msg>` (next arg) or `-m=<msg>` / `--message=<msg>`.
+      // `-m <msg>` / `--message <msg>`, next arg, or `-m=<msg>` / `--message=<msg>`.
       let msg: string | undefined
       if ((arg === '--message' || arg === '-m') && i + 1 < length) {
         msg = c.args[i + 1]
@@ -81,7 +102,7 @@ const COMMIT_VALUE_FLAGS = new Set([
 
 // Explicit pathspecs on a `git commit` (`git commit -o a b -m …`,
 // `git commit a b`, or anything after `--`). Empty when the commit names no
-// paths (it'll commit whatever is staged instead).
+// paths, it'll commit whatever is staged instead.
 function bumpCommitPaths(command: string): string[] {
   const out: string[] = []
   for (const c of commandsFor(command, 'git')) {

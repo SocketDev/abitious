@@ -1,7 +1,7 @@
 /**
  * @file Reporting phase for auditing-gha: runs the audit/conform commands
  *   across a repo list and renders the results — human-readable console
- *   output (with a final tally) or `--json` machine-readable output — then
+ *   output, with a final tally, or `--json` machine-readable output — then
  *   sets `process.exitCode`. Split out of run.mts to keep it under the
  *   file-size cap; the baseline check/write logic lives in run.mts.
  */
@@ -23,7 +23,7 @@ export interface RepoFinding {
 
 export interface ConformResult {
   repo: string
-  // True when a PUT was issued (drift existed and was corrected).
+  // True when a PUT was issued, drift existed and was corrected.
   changed: boolean
   // Canonical patterns added by the conform (subset of CANONICAL_PATTERNS).
   added: string[]
@@ -42,7 +42,9 @@ export async function runConform(
     results.push(await conformOne(repos[i]!))
   }
   if (cfg.json) {
-    logger.info(JSON.stringify(results, null, 2))
+    // Plain stdout, not the logger: --json is the machine-readable contract
+    // (`run.mts --json | jq`) and the logger decorates + writes to stderr.
+    process.stdout.write(`${JSON.stringify(results, null, 2)}\n`)
   } else {
     for (let i = 0, { length } = results; i < length; i += 1) {
       const r = results[i]!
@@ -83,7 +85,9 @@ export async function runAudit(
     findings.push(await auditOne(repos[i]!))
   }
   if (cfg.json) {
-    logger.info(JSON.stringify(findings, null, 2))
+    // Plain stdout, not the logger: --json is the machine-readable contract
+    // (`run.mts --json | jq`) and the logger decorates + writes to stderr.
+    process.stdout.write(`${JSON.stringify(findings, null, 2)}\n`)
   } else {
     let okCount = 0
     let failCount = 0

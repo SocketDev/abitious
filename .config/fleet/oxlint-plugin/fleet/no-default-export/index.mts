@@ -4,15 +4,15 @@
  *   lets the caller rename freely), defeat grep / "find references" tools, and
  *   don't compose with re-exports (`export * from 'mod'` skips the default).
  *   Style signal that motivated the rule: across socket-sdk-js, socket-cli,
- *   socket-packageurl-js, socket-sdxgen, socket-lib, and socket-stuie, the
+ *   socket-packageurl-js, sdxgen, socket-lib, and stuie, the
  *   named-vs-default ratio is essentially 100-to-1 — socket-lib has zero
  *   `export default` statements, the other repos have a handful of stragglers
  *   each. Autofix scope:
  *
  *   - `export default function foo() {}` → `export function foo() {}`
  *   - `export default class Foo {}` → `export class Foo {}`
- *   - `export default <identifier>` (separate-declaration form) → `export {
- *     <identifier> }` Skips (report-only, no fix):
+ *   - `export default <identifier>`, separate-declaration form → `export {
+ *     <identifier> }` Skips, report-only, no fix:
  *   - `export default function () {}` / `export default class {}` — anonymous
  *     declarations, no canonical name to assign.
  *   - `export default <expression>` where the expression isn't a bare identifier
@@ -22,7 +22,7 @@
  *     rolldown / vite / tsup read the module's `default` export by contract —
  *     `export default defineConfig({...})` is the documented shape and there is
  *     no named-export alternative the tool will honor. Flagging it is a false
- *     positive (the config file can't satisfy both the tool and the rule), so a
+ *     positive, the config file can't satisfy both the tool and the rule, so a
  *     config-entrypoint filename short-circuits the rule. This mirrors how the
  *     plugin's own rule files carry a per-file disable for the same "the tool's
  *     contract requires a default export" reason.

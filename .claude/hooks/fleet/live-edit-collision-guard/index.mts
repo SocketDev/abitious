@@ -12,9 +12,12 @@
  * The collision is better caught HERE, before the write lands.
  *
  * Actor key: sha256(transcript_path).slice(0,16). The transcript_path
- * discriminates actors — each subagent / workflow-agent gets its own JSONL
- * while the main session has a different one. Keying by its hash gives a
- * stable, content-free filesystem key. See _shared/active-edits-ledger.mts.
+ * discriminates SEPARATE interactive sessions. It does NOT discriminate a
+ * spawned subagent from its parent — Claude Code delivers the PARENT
+ * session's transcript_path to hooks even for a subagent's writes, so a
+ * subagent's edits collapse into the parent actor's ledger (the stop guard
+ * detects live children from their own transcript files instead). See the
+ * computeActorId note in _shared/active-edits-ledger.mts.
  *
  * Block message shape: What / Where / Saw-vs-wanted / Fix — three sanctioned
  * moves:
@@ -22,7 +25,7 @@
  *   (b) queue the edit for after the run lands,
  *   (c) user types `Allow live-edit-collision bypass` verbatim.
  *
- * Fail-open: any IO / parse error falls through (no block), per the fleet's
+ * Fail-open: any IO / parse error falls through, no block, per the fleet's
  * hook contract — "a buggy hook silently allows" beats "a buggy hook wedges
  * the session."
  */

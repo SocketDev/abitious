@@ -22,6 +22,7 @@ The fleet runs on `chore(wheelhouse): cascade template@<sha>` commits. Every whe
 
 Tool-version bumps (pnpm, zizmor, sfw, …) route through the wheelhouse-owned
 <!-- socket-lint: allow cross-repo -->
+
 pipeline (`node scripts/repo/pipeline.mts`, run FROM the wheelhouse: bump →
 reconcile → CI-green gate → propagate); this skill then carries the resulting
 template change fleet-wide like any other.
@@ -41,6 +42,12 @@ Propagates a `socket-wheelhouse/template/` SHA to every fleet repo. The flow:
 
 The `FLEET_SYNC=1` sentinel is recognized by the wheelhouse `no-revert-guard` + `overeager-staging-guard` hooks. It allowlists exactly: `git commit --no-verify` whose message starts with `chore(wheelhouse): cascade template@`, `git push --no-verify`, and `git add -A`/`-u`/`.`. Nothing else.
 
+## Pre-cascade gate — a wave refuses to start on a red wheelhouse
+
+The wave driver's preflight refuses in three ways before touching any repo. First, a dirty `template/`: the sync runner silently skips a dirty fleet dir, so the wave lands a partial cascade. Second, another cascade already in flight. Third, a red `pnpm run check --all` in the wheelhouse. The wheelhouse gates ARE the fleet gates, so a check that is red locally goes red in every member the wave pushes to; the action-port lock-step defect shipped exactly that way, with a working gate that was never run before the wave.
+
+Every red check refuses the wave. The gate ships no committed waiver list: a standing exemption in the tree carries no expiry and no owner, so the gate quietly stops protecting and nobody is accountable for clearing it. A genuinely unrelated failure is exempted for ONE run via the `knownRed` allowlist argument on `runPrecascadeGate`, passed at the call site where a reviewer sees it. The gate is fail-closed — a non-zero exit that the runner's summary line cannot attribute to a named check refuses too. `--dry-run` skips the gate; it pushes nothing.
+
 🚨 **Dogfood from a place of passing locally.** Before any dogfood cascade run the local-green gate IN ORDER: `pnpm run update` → `pnpm i` → `pnpm run fix --all` → `pnpm run check --all` → `pnpm run test` (or `pnpm run cover`); if green, commit (and fix + commit), THEN dogfood. `pnpm run update` runs FIRST so pending catalog / tool drift resolves in its own commit and does not ride the feature dogfood. Canonical reference + rationale: `docs/agents.md/repo/fleet-sync-and-release-flow.md` (stage b, DOGFOOD).
 
 ## How to invoke
@@ -50,7 +57,13 @@ The `FLEET_SYNC=1` sentinel is recognized by the wheelhouse `no-revert-guard` + 
 node .claude/skills/fleet/cascading-fleet/lib/cascade-template.mts <template-sha>
 ```
 
-The script reads the fleet-repo list from `lib/fleet-repos.txt` (single source of truth), iterates, and writes a per-repo result line to stdout. Output also tees to `/tmp/cascade-<sha>.log` for post-hoc inspection.
+The script reads the wave list from `lib/fleet-repos.txt` — the worktree-cascade SUBSET of the canonical roster `lib/fleet-repos.json`, validated against it at startup, where an unknown name refuses the whole wave — iterates, and writes a per-repo result line to stdout. Output also tees to `/tmp/cascade-<sha>.log` for post-hoc inspection.
+
+## Membership gate — sweeps write only into roster members
+
+A repo is fleet surface because its **origin remote resolves to a roster member** (`lib/fleet-repos.json`), never because it sits under `~/projects`. A past sweep treated a non-member clone there as fleet surface and landed a fleet-convention commit into it. Every fleet tool that WRITES into a working tree asserts destination membership first and refuses non-members: `fetch-fleet-bundle.mts` (default root and `--dest`), `gen/agents-skills-mirror.mts`, `soak-bypass.mts`, `scripts/repo/sync.mts` + `sync-scaffolding/cli.mts` path targets, and this wave driver (txt-vs-json validation). The shared predicates live in `scripts/fleet/_shared/fleet-membership.mts`, deriving from the hooks' `fleet-repos.mts` — one roster, many readers.
+
+The escape hatch is explicit and audited — never an env var: `--allow-non-member --reason "<why>"`. The reason is required and logged, so a sanctioned non-member write always leaves a line in the transcript. The commit-side backstop is `no-fleet-scope-in-non-member-guard`, which blocks a `<type>(fleet): …` commit subject in a repo whose origin is outside the roster.
 
 ## Post-cascade: reconcile lockfiles (in parallel)
 

@@ -13,7 +13,7 @@
  *   empty `files: []` guarantees nothing else ships) and runs
  *   `npm publish --access <access>` from it.
  *   CLI: placeholder <name...> [--access public|restricted] [--apply]
- *   Dry-run by default (prints the plan, publishes nothing); `--apply` performs
+ *   Dry-run by default, prints the plan, publishes nothing; `--apply` performs
  *   the publish. Per-name isolation: one name failing never aborts the rest, and
  *   a summary prints at the end. Fail-soft — main() catches, logs, and sets a
  *   non-zero exit code; it never throws.
@@ -29,7 +29,9 @@ import process from 'node:process'
 import { errorMessage } from '@socketsecurity/lib-stable/errors/message'
 
 import { isMainModule } from '../../_shared/is-main-module.mts'
-import { logger, runInherit } from '../shared.mts'
+import { runNpmWebAuth } from '../../npm-web-auth.mts'
+import { NAPI_TARGETS_DEFAULT } from '../../util/napi-targets.mts'
+import { logger } from '../shared.mts'
 import { safeDelete } from '@socketsecurity/lib-stable/fs/safe'
 
 // The reservation version. Deliberately the lowest possible semver so the real
@@ -45,7 +47,7 @@ export interface PlaceholderPackageJson {
   // publishable, and the point is to claim the name on the public registry.
   private: false
   // Mirror the CLI `--access` into the manifest too, so the reservation's
-  // access is self-describing (belt-and-suspenders with the publish flag).
+  // access is self-describing, belt-and-suspenders with the publish flag.
   publishConfig: { access: Access }
   // Empty allow-list: npm still ships the always-included files (package.json +
   // README.md) and NOTHING else — the reservation carries no code.
@@ -152,14 +154,23 @@ export async function assemblePlaceholderDir(
   return dir
 }
 
-// Default publish executor: the sanctioned one-time LOCAL publish. Runs
-// `npm publish --access <access>` from the assembled temp dir with inherited
-// stdio so any registry OTP / auth prompt reaches the operator's terminal.
+// Default publish executor: the sanctioned one-time LOCAL publish. Routes
+// `npm publish --access <access>`, run from the assembled temp dir, through
+// the npm-web-auth PTY wrapper: on a real TTY, or with --otp supplied, the
+// wrapper execs npm directly; from a NON-interactive agent shell it allocates
+// a PTY so npm's 2FA web-auth flow opens the browser and polls for approval
+// instead of dying EOTP once per name, the ajar-reservation incident shape.
 async function defaultPublishExec(
   dir: string,
   access: Access,
 ): Promise<number> {
-  return await runInherit('npm', ['publish', '--access', access], dir)
+  return await runNpmWebAuth({
+    argv: ['publish', '--access', access],
+    cwd: dir,
+    env: process.env,
+    isTty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    platform: process.platform,
+  })
 }
 
 async function defaultRemoveDir(dir: string): Promise<void> {
@@ -236,7 +247,10 @@ export async function runPlaceholder(
         if (code === 0) {
           logger.success(
             `Reserved ${name}@${PLACEHOLDER_VERSION}. Configure the OIDC ` +
-              `trusted publisher in the npm UI, then release via CI.`,
+              `trusted publisher in the npm UI, then release via CI. ` +
+              `A 404 from \`npm view\` right after this is the account's ` +
+              `STAGED publishing, not a failed publish — promote the staged ` +
+              `package in the npm UI to make the name publicly readable.`,
           )
           results.push({ name, status: 'published' })
         } else {
@@ -262,20 +276,49 @@ export async function runPlaceholder(
   return results
 }
 
+// A dotted target token after the package's base name means the caller passed
+// an implementation/platform package, not a meta-selector — expanding it would
+// mint malformed names like `x.node-a.node-b`.
+const DOTTED_TARGET_TOKEN_RE = /\.(?:exe|node|wasm)(?:[.-]|$)/
+
 /**
- * Parse `placeholder <name...> [--access public|restricted] [--apply]`.
- * `--access` defaults to `public`; dry-run is the default (no `--apply`).
- * Positional args are package names. Exits (usage error) on an unknown flag, a
- * bad `--access` value, or when no names are given.
+ * Expand a napi meta-selector into its placeholder family: the meta name plus
+ * one `.node-<target>` platform package per fleet-default napi target, per the
+ * dot-naming grammar `@<owner>/<name>[.<lang>].<target>[-<platform>]`. The
+ * platform set derives from the canonical `NAPI_TARGETS_DEFAULT`, so a matrix
+ * change reaches reservations automatically. Returns `undefined` when `meta`
+ * already carries a target token (the caller named an implementation package,
+ * not a family). Pure — exported for tests.
+ */
+export function expandNapiFamily(meta: string): string[] | undefined {
+  if (DOTTED_TARGET_TOKEN_RE.test(meta)) {
+    return undefined
+  }
+  return [meta, ...NAPI_TARGETS_DEFAULT.map(t => `${meta}.node-${t}`)]
+}
+
+/**
+ * Parse `placeholder <name...> [--access public|restricted] [--napi-family]
+ * [--apply]`. `--access` defaults to `public`; dry-run is the default (no
+ * `--apply`). Positional args are package names; with `--napi-family` each
+ * positional is a napi meta-selector expanded to its full reservation family
+ * (meta + the 5 fleet-default `.node-<target>` platform packages), so a
+ * family claim is ONE short argument instead of a six-name command line that
+ * wraps in a terminal and silently drops names. Exits, usage error, on an
+ * unknown flag, a bad `--access` value, a `--napi-family` positional that
+ * already carries a target token, or when no names are given.
  */
 export function parseArgs(argv: readonly string[]): PlaceholderArgs {
   let access: Access = 'public'
   let apply = false
+  let napiFamily = false
   const names: string[] = []
   for (let i = 0, { length } = argv; i < length; i += 1) {
     const arg = argv[i]!
     if (arg === '--apply') {
       apply = true
+    } else if (arg === '--napi-family') {
+      napiFamily = true
     } else if (arg === '--access') {
       const v = argv[++i]
       if (v !== 'public' && v !== 'restricted') {
@@ -296,9 +339,27 @@ export function parseArgs(argv: readonly string[]): PlaceholderArgs {
   }
   if (names.length === 0) {
     logger.fail(
-      'Usage: placeholder <name...> [--access public|restricted] [--apply]',
+      'Usage: placeholder <name...> [--access public|restricted] ' +
+        '[--napi-family] [--apply]',
     )
     process.exit(1)
+  }
+  if (napiFamily) {
+    const expanded: string[] = []
+    for (let i = 0, { length } = names; i < length; i += 1) {
+      const name = names[i]!
+      const family = expandNapiFamily(name)
+      if (!family) {
+        logger.fail(
+          `--napi-family expands meta-selectors, but ${name} already ` +
+            `carries a .node/.exe/.wasm target token. Where: argv. Fix: ` +
+            `pass the bare meta name (e.g. @socketsecurity/ajar).`,
+        )
+        process.exit(1)
+      }
+      expanded.push(...family)
+    }
+    return { access, apply, names: expanded }
   }
   return { access, apply, names }
 }

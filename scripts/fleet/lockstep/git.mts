@@ -1,6 +1,6 @@
 /**
  * @file Git helpers for the lockstep harness. Thin wrappers over `git -C <dir>
- *   <cmd>` that the kind checkers (file-fork, version-pin) use to peek at
+ *   <cmd>` that the kind checkers, file-fork, version-pin, use to peek at
  *   submodule state without dragging in a full libgit binding. The harness is
  *   read-only over the working tree — the ONE mutation is `fetchTagsQuiet`, a
  *   best-effort `git fetch --tags` the version-pin drift path runs so a
@@ -79,6 +79,22 @@ export function fetchTagsQuiet(submoduleDir: string): boolean {
     return !result.error && result.status === 0
   } catch {
     return false
+  }
+}
+
+/**
+ * The remote default-branch head via `git ls-remote origin HEAD` — a network
+ * read that needs no local commit graph, so it works inside the fleet's
+ * mandated-shallow submodule clones. Returns undefined when the remote is
+ * unreachable or the output has no SHA.
+ */
+export function lsRemoteHead(submoduleDir: string): string | undefined {
+  try {
+    const out = gitIn(submoduleDir, ['ls-remote', 'origin', 'HEAD'])
+    const sha = out.split(/\s+/u)[0]
+    return sha && /^[0-9a-f]{40}$/u.test(sha) ? sha : undefined
+  } catch {
+    return undefined
   }
 }
 

@@ -1,13 +1,14 @@
 /**
  * @file AST parse primitives for fleet hooks — the lazy
- *   `@ultrathink/acorn.wasm` loader plus the narrow `tryParse` / `walkSimple`
- *   surface and the shared `AcornNode` / `ParseOptions` / `CallSite` types the
- *   sibling modules (`comments`, `calls`, `literals`) build on. Import the
- *   whole helper set from the specific `../ast/*.mts` module. No vendored wasm:
- *   the parser comes from the npm `@ultrathink/acorn.wasm` catalog dep,
- *   `require()`d LAZILY (first use, not module eval) so a V8 startup-snapshot
- *   build pass — which evaluates every module with no `WebAssembly` global —
- *   stays safe; instantiation happens at runtime.
+ *   `@ultrathink/acorn.rs.wasm` loader plus the narrow `tryParse` /
+ *   `walkSimple` surface and the shared `AcornNode` / `ParseOptions` /
+ *   `CallSite` types the sibling modules (`comments`, `calls`, `literals`)
+ *   build on. Import the whole helper set from the specific `../ast/*.mts`
+ *   module. No vendored wasm: the parser comes from the npm
+ *   `@ultrathink/acorn.rs.wasm` catalog dep, `require()`d LAZILY (first use,
+ *   not module eval) so a V8 startup-snapshot build pass — which evaluates
+ *   every module with no `WebAssembly` global — stays safe; instantiation
+ *   happens at runtime.
  */
 
 import { createRequire } from 'node:module'
@@ -104,11 +105,11 @@ interface AcornWasm {
 
 let cachedWasm: AcornWasm | undefined
 
-// Lazy so the WASM is never touched during a snapshot build pass (module eval);
+// Lazy so the WASM is never touched during a snapshot build pass, module eval;
 // runtime-only, where `WebAssembly` is present.
 function acornWasm(): AcornWasm {
   if (cachedWasm === undefined) {
-    cachedWasm = require('@ultrathink/acorn.wasm') as AcornWasm
+    cachedWasm = require('@ultrathink/acorn.rs.wasm') as AcornWasm
   }
   return cachedWasm
 }
@@ -172,7 +173,7 @@ export function walkSimple(
  * doesn't emit `loc` data even with `locations: true`, but every node carries
  * `start` / `end` byte offsets — this function bridges the gap.
  *
- * Counts `\n`, `\r`, AND `\r\n` (treated as one newline) so the line number
+ * Counts `\n`, `\r`, AND `\r\n`, treated as one newline, so the line number
  * agrees with `splitLines(source)[line - 1]` regardless of the source's newline
  * convention.
  */
@@ -201,7 +202,7 @@ export function offsetToLineCol(
 
 /**
  * Split source text into lines while normalizing the three legal newline
- * conventions: `\r\n` (Windows), `\n` (Unix), `\r` (legacy Mac). Hooks that
+ * conventions: `\r\n` (Windows), `\n` (Unix), `\r`, legacy Mac. Hooks that
  * inspect source line-by-line should ALWAYS go through this helper — a raw
  * `source.split('\n')` over a CRLF file leaves a trailing `\r` on every line,
  * breaking line-snippet display and regex anchors.

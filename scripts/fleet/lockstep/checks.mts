@@ -37,10 +37,12 @@ import {
   fetchTagsQuiet,
   gitIn,
   isShallowRepo,
+  lsRemoteHead,
   resolveUpstream,
   shaIsReachable,
   splitLines,
 } from './git.mts'
+import { resolveTarget } from './auto-bump.mts'
 import { countPatternHits, walkDirFiles } from './scan.mts'
 
 export function checkFileFork(
@@ -105,6 +107,82 @@ export function checkFileFork(
   return base
 }
 
+// Tag/head-based drift for a shallow submodule clone. Severity mapping: a
+// newer stable tag in the pin's scheme OR a moved origin/HEAD → drift; pin
+// current → ok; unreachable remote or an unparseable/ambiguous tag scheme →
+// error. Every non-ok path carries a message, so a shallow clone never reads
+// falsely clean.
+export function shallowVersionPinDrift(
+  base: VersionPinReport,
+  row: VersionPinRow,
+  effectivePin: string,
+  submodulePath: string,
+  submoduleDir: string,
+  options?: { tagsFetched?: boolean | undefined } | undefined,
+): VersionPinReport {
+  const { tagsFetched = false } = {
+    __proto__: null,
+    ...options,
+  } as { tagsFetched?: boolean | undefined }
+  const { messages } = base
+  if (!tagsFetched) {
+    base.severity = 'error'
+    messages.push(
+      `drift unknown — ${submodulePath} is a shallow clone (fleet-mandated) and the tag fetch failed; re-run online, or resolve via scripts/fleet/lockstep/auto-bump.mts --plan`,
+    )
+    return base
+  }
+  let tags: string[] = []
+  try {
+    tags = splitLines(gitIn(submoduleDir, ['tag', '--list'])).filter(t =>
+      t.trim(),
+    )
+  } catch {
+    // No readable tag list — the ls-remote HEAD compare below still runs.
+  }
+  // `track-latest` here regardless of the row's policy: this is the REPORT
+  // layer, and the signal is "a newer stable tag exists"; policy enforcement
+  // major-gate, locked, stays in the auto-bump planner.
+  const { skipReason, targetTag } = resolveTarget(
+    row.pinned_tag,
+    tags,
+    'track-latest',
+  )
+  if (targetTag) {
+    base.severity = 'drift'
+    messages.push(
+      `newer stable tag ${targetTag} (pinned ${row.pinned_tag ?? effectivePin.slice(0, 12)}); commit distance unavailable in a shallow clone — bump via scripts/fleet/lockstep/auto-bump.mts`,
+    )
+    return base
+  }
+  if (
+    skipReason &&
+    skipReason !== 'already at the latest stable tag' &&
+    skipReason !== 'no parseable stable tags found'
+  ) {
+    // Unparseable pinned tag or an ambiguous multi-scheme tag set — a human
+    // decision, surfaced loud.
+    base.severity = 'error'
+    messages.push(`drift unknown — ${skipReason}`)
+    return base
+  }
+  const remoteHead = lsRemoteHead(submoduleDir)
+  if (!remoteHead) {
+    base.severity = 'error'
+    messages.push(
+      `drift unknown — ${submodulePath} is a shallow clone (fleet-mandated) and \`git ls-remote origin HEAD\` failed; re-run online`,
+    )
+    return base
+  }
+  if (remoteHead !== effectivePin) {
+    base.severity = 'drift'
+    messages.push(
+      `origin/HEAD is ${remoteHead.slice(0, 12)} (pinned ${effectivePin.slice(0, 12)}${row.pinned_tag ? `, tag ${row.pinned_tag}` : ''}); commit distance unavailable in a shallow clone`,
+    )
+  }
+  return base
+}
+
 export function checkVersionPin(
   row: VersionPinRow,
   manifest: Manifest,
@@ -130,7 +208,7 @@ export function checkVersionPin(
     base.severity = 'error'
     return base
   }
-  // The authoritative pin is the `.gitmodules` `ref =` (single source of truth).
+  // The authoritative pin is the `.gitmodules` `ref =`, single source of truth.
   // `effectivePin` prefers a legacy stored `pinned_sha` (a belt for direct
   // callers / unit tests that bypass loadManifestTree — the harness path already
   // fills row.pinned_sha from the same ref), else derives it here.
@@ -195,17 +273,23 @@ export function checkVersionPin(
   // where drift read "1 commit" while the true gap was 211 commits / 3 minor
   // releases. Best-effort: an offline run falls through to the loud detection
   // below rather than trusting an unrefreshed count.
-  fetchTagsQuiet(submoduleDir)
+  const tagsFetched = fetchTagsQuiet(submoduleDir)
 
   // A shallow clone can't yield a trustworthy count — `rev-list` truncates at
-  // the graft boundary — and a fetch does not deepen it. Surface drift as
-  // UNKNOWN and LOUD (error) instead of a falsely-low number that reads clean.
+  // the graft boundary — and fleet upstream submodules are MANDATED shallow
+  // single-branch, so "unshallow first" is never the answer. Derive drift from
+  // the fetched tag set and the remote default-branch head instead: the
+  // actionable signal for a version-pin is a newer stable tag (or untagged
+  // default-branch movement), not a local commit count.
   if (isShallowRepo(submoduleDir)) {
-    base.severity = 'error'
-    messages.push(
-      `drift unknown — ${upstream.submodule} is a shallow clone; run \`git fetch --unshallow --tags\` before trusting the drift count`,
+    return shallowVersionPinDrift(
+      base,
+      row,
+      effectivePin,
+      upstream.submodule,
+      submoduleDir,
+      { tagsFetched },
     )
-    return base
   }
 
   // Count commits on the upstream default branch since pinned SHA, using the
@@ -357,7 +441,7 @@ export function checkFeatureParity(
   base.total_score = Math.round(total * 100) / 100
 
   // Floor: higher criticality = stricter. Cap at 0.85 so 10/10 criticality
-  // doesn't demand perfect pattern coverage (code is prose, patterns miss).
+  // doesn't demand perfect pattern coverage, code is prose, patterns miss.
   const floor = Math.min(0.85, row.criticality / 10)
   if (total < floor) {
     base.severity = 'drift'
@@ -470,7 +554,7 @@ export function checkLangParity(
 }
 
 // ---------------------------------------------------------------------------
-// Cross-row consistency checks (beyond the schema's per-row validation).
+// Cross-row consistency checks, beyond the schema's per-row validation.
 // ---------------------------------------------------------------------------
 
 /**

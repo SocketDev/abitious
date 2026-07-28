@@ -16,7 +16,7 @@
  *   refusal; the build is still verified (no `--no-verify`). crates.io REQUIRES
  *   `description` + `license`, so the reservation manifest carries both.
  *   CLI: placeholder <name...> [--apply]
- *   Dry-run by default (prints the plan, publishes nothing); `--apply` performs
+ *   Dry-run by default, prints the plan, publishes nothing; `--apply` performs
  *   the publish. Per-name isolation: one name failing never aborts the rest, and
  *   a summary prints at the end. Fail-soft — main() catches, logs, and sets a
  *   non-zero exit code; it never throws. The script handles no tokens — cargo
@@ -53,6 +53,63 @@ export interface PlaceholderCargoTomlConfig {
   // require it; a standalone reservation for an arbitrary name has no reliable
   // repo URL, so it is omitted by default).
   repository?: string | undefined
+}
+
+/**
+ * Shape-check a crates.io token WITHOUT ever printing it. crates.io API
+ * tokens are single-line ASCII with the `cio` prefix. The incident shape this
+ * guards: `pbpaste | cargo login` saving chat-copied COMMAND text as the
+ * token (the operator copied the command after the token, so the clipboard
+ * held `! pbpaste | cargo login`), then every publish 401ing with a confusing
+ * "unexpected authentication scheme" server error. Returns a one-line problem
+ * description, or `undefined` when the token looks plausible. Pure — exported
+ * for tests.
+ */
+export function cargoTokenProblem(token: string): string | undefined {
+  if (token.length === 0) {
+    return 'is empty'
+  }
+  if (token.startsWith('!')) {
+    return "begins with '!' — a chat-copied shell command, not a token"
+  }
+  if (/\s/.test(token)) {
+    return 'contains whitespace — pasted command text, not a token'
+  }
+  if (!token.startsWith('cio')) {
+    return "lacks the crates.io 'cio' prefix"
+  }
+  return undefined
+}
+
+/**
+ * Resolve the crates.io token the way cargo will: `CARGO_REGISTRY_TOKEN`
+ * first, else the first `token = "…"` row of `~/.cargo/credentials.toml`.
+ * Returns `undefined` when neither holds one. Best-effort read-only — an
+ * unreadable/unparseable credentials file reads as "no token" and cargo then
+ * reports its own auth error.
+ */
+export async function resolveCratesToken(
+  env: NodeJS.ProcessEnv = process.env,
+  homeDir: string = os.homedir(),
+): Promise<string | undefined> {
+  const fromEnv = env['CARGO_REGISTRY_TOKEN']
+  if (fromEnv !== undefined && fromEnv !== '') {
+    return fromEnv
+  }
+  try {
+    const raw = await fs.readFile(
+      path.join(homeDir, '.cargo', 'credentials.toml'),
+      'utf8',
+    )
+    // Line-anchored `token = "<value>"` row: optional indent, the key, `=`,
+    // then a double-quoted TOML string whose body is any run of non-quote,
+    // non-backslash chars or backslash-escaped pairs (captured as `token`).
+    return /^\s*token\s*=\s*"(?<token>(?:[^"\\]|\\.)*)"/m.exec(raw)?.groups?.[
+      'token'
+    ]
+  } catch {
+    return undefined
+  }
 }
 
 export interface PlaceholderArgs {
@@ -278,7 +335,7 @@ export async function runPlaceholder(
 
 /**
  * Parse `placeholder <name...> [--apply]`. Dry-run is the default (no
- * `--apply`). Positional args are crate names. Exits (usage error) on an
+ * `--apply`). Positional args are crate names. Exits, usage error, on an
  * unknown flag, or when no names are given. (crates.io has no per-package
  * access flag, so there is no `--access` here.)
  */
@@ -305,6 +362,26 @@ export function parseArgs(argv: readonly string[]): PlaceholderArgs {
 
 export async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
+  // Auth preflight, apply-mode only: catch a malformed saved token BEFORE the
+  // per-name publish loop turns it into one opaque 401 per name.
+  if (args.apply) {
+    const token = await resolveCratesToken()
+    const problem =
+      token === undefined
+        ? 'is missing (no env token, no credentials.toml row)'
+        : cargoTokenProblem(token)
+    if (problem !== undefined) {
+      logger.fail(
+        `crates.io auth preflight: the token ${problem}. ` +
+          `Where: CARGO_REGISTRY_TOKEN, else ~/.cargo/credentials.toml. ` +
+          `Fix: copy the token from crates.io/settings/tokens as the LAST ` +
+          `thing on the clipboard (copying a command overwrites it), type ` +
+          `the login command by hand, and pipe: pbpaste | cargo login.`,
+      )
+      process.exitCode = 1
+      return
+    }
+  }
   logger.log(
     `crates.io placeholder reservation — ${args.names.length} name(s)` +
       `${args.apply ? ' [apply]' : ' [dry-run]'}`,

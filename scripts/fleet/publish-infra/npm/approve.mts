@@ -15,6 +15,10 @@ import process from 'node:process'
 
 import { checkbox, password } from '@socketsecurity/lib-stable/stdio/prompts'
 
+import {
+  APPROVE_IS_NOT_A_RESUME_PATH,
+  releaseGapRecoveryCommand,
+} from '../../_shared/release-gap-recovery.mts'
 import { releaseBehindLiveGate } from '../release.mts'
 import { logger, rootPath, runInheritTty } from '../shared.mts'
 import { isAlreadyPublished } from './registry.mts'
@@ -25,19 +29,18 @@ import {
   listStagedPackages,
   readPackageJson,
 } from './shared.mts'
-import { ensureNpmLogin } from './login.mts'
+import { ensureNpmIdentity } from './auth-identity.mts'
 import { scanStagedEntry } from './scan.mts'
 import { defaultDownloadStagedTarball, verifyStagedEntry } from './staged.mts'
 import {
   packWorkspaceReleaseAssets,
   verifyStagedPlatformEntry,
 } from './staged-workspace.mts'
+import { hasMachineBuiltPayload } from './workspace-plan.mts'
 import {
   findWorkspacePackageByName,
   resolveNpmWorkspaceLayout,
 } from './workspace.mts'
-
-export { ensureNpmLogin }
 
 export interface ApproveChoice {
   checked: boolean
@@ -80,16 +83,53 @@ export async function runApprove(config: {
   otpFromFlag: string | undefined
   skipRelease?: boolean | undefined
   yes: boolean
+  // ── Injected collaborator seams, dependency injection. Every field
+  // defaults to the real import below, so omitting them leaves prod behavior
+  // unchanged; tests pass fakes to drive each decision path without spawning
+  // npm/pnpm/git/gh, prompting a TTY, or touching the registry. Typed as
+  // `typeof <realFn>` so a signature drift on the collaborator is a compile
+  // error here. ──
+  checkbox?: typeof checkbox | undefined
+  ensureIdentity?: typeof ensureNpmIdentity | undefined
+  fetchPriorProvenance?: typeof fetchPriorProvenanceMap | undefined
+  isPublished?: typeof isAlreadyPublished | undefined
+  listStaged?: typeof listStagedPackages | undefined
+  password?: typeof password | undefined
+  readPkg?: typeof readPackageJson | undefined
+  releaseGate?: typeof releaseBehindLiveGate | undefined
+  resolveLayout?: typeof resolveNpmWorkspaceLayout | undefined
+  runInheritTty?: typeof runInheritTty | undefined
+  scanEntry?: typeof scanStagedEntry | undefined
+  verifyEntry?: typeof verifyStagedEntry | undefined
 }): Promise<void> {
   const { dryRun, noScan, otpFromFlag, skipRelease, yes } = {
     __proto__: null,
     ...config,
   } as typeof config
-  if (!(await ensureNpmLogin())) {
+  // Resolve each injected seam to its real implementation when omitted.
+  const resolveLayout = config.resolveLayout ?? resolveNpmWorkspaceLayout
+  const ensureIdentity = config.ensureIdentity ?? ensureNpmIdentity
+  const listStaged = config.listStaged ?? listStagedPackages
+  const readPkg = config.readPkg ?? readPackageJson
+  const isPublished = config.isPublished ?? isAlreadyPublished
+  const verifyEntry = config.verifyEntry ?? verifyStagedEntry
+  const fetchPriorProvenance =
+    config.fetchPriorProvenance ?? fetchPriorProvenanceMap
+  const scanEntry = config.scanEntry ?? scanStagedEntry
+  const releaseGate = config.releaseGate ?? releaseBehindLiveGate
+  const runTty = config.runInheritTty ?? runInheritTty
+  const promptCheckbox = config.checkbox ?? checkbox
+  const promptPassword = config.password ?? password
+  // Identity, not just auth: staged entries are maintainer-visible, so a
+  // wrong-account login reads an empty stage list and the approve silently
+  // no-ops. ensureNpmIdentity covers logged-out (delegates to login.mts) AND
+  // wrong-user (TTY: consented logout/login rotation; otherwise fail loud).
+  const layout = resolveLayout(rootPath)
+  if (!(await ensureIdentity(layout.versionSource.name))) {
     process.exitCode = 1
     return
   }
-  const staged = await listStagedPackages()
+  const staged = await listStaged()
   if (staged.length === 0) {
     logger.log('No packages currently staged.')
     return
@@ -100,15 +140,14 @@ export async function runApprove(config: {
   // verify gate can only ever pack THIS repo's packages (defaultPackTarball
   // packs this checkout), so a foreign entry could never verify; worse, its
   // verify pack would pin THIS repo's README against the FOREIGN entry's
-  // version (a wrong-manifest pin) and then fail with advice to reject an
+  // version, a wrong-manifest pin, and then fail with advice to reject an
   // artifact that is perfectly good in its own repo. "Ours" is the full
   // publishable-name set: the single subject for a plain repo, every
   // workspace member (loader + platform packages) for a multi layout.
-  const layout = resolveNpmWorkspaceLayout(rootPath)
   const localNames =
     layout.kind === 'multi'
       ? new Set(layout.packages.map(pkg => pkg.name))
-      : new Set([readPackageJson().name])
+      : new Set([readPkg().name])
   const localLabel = [...localNames].toSorted().join(', ')
   const ours: StageListEntry[] = []
   for (const entry of staged) {
@@ -136,13 +175,22 @@ export async function runApprove(config: {
     if (
       entry.name &&
       entry.version &&
-      !(await isAlreadyPublished(entry.name, entry.version))
+      !(await isPublished(entry.name, entry.version))
     ) {
       eligible.push(entry)
     }
   }
   if (eligible.length === 0) {
+    // This filter runs BEFORE the tag + GitHub release leg, so an operator who
+    // re-runs --approve to heal a missing tag lands here and exits zero having
+    // cut nothing. Name the real resume path rather than let the no-op read as
+    // "already done".
     logger.log('All staged entries are already published; nothing to approve.')
+    logger.log(
+      `  ${APPROVE_IS_NOT_A_RESUME_PATH}\n` +
+        `  If a published version is missing its tag or GitHub release, heal it with\n` +
+        `  ${releaseGapRecoveryCommand('<version>')}`,
+    )
     return
   }
 
@@ -162,11 +210,12 @@ export async function runApprove(config: {
       ? findWorkspacePackageByName(layout, entry.name)
       : undefined
     // eslint-disable-next-line no-await-in-loop
-    const verified = member?.platform
-      ? await verifyStagedPlatformEntry(entry, member, {
-          downloadStagedTarball: defaultDownloadStagedTarball,
-        })
-      : await verifyStagedEntry(entry)
+    const verified =
+      member && (member.platform || hasMachineBuiltPayload(member.manifest))
+        ? await verifyStagedPlatformEntry(entry, member, {
+            downloadStagedTarball: defaultDownloadStagedTarball,
+          })
+        : await verifyEntry(entry)
     if (verified) {
       verifiedEntries.push(entry)
     }
@@ -192,13 +241,13 @@ export async function runApprove(config: {
   // versions — a workflow drift signal). Cheap: one fetch per unique
   // name, abbreviated packument (no _npmUser needed; we only check
   // attestations presence as a proxy for "this name is OIDC-published").
-  const priorProvenance = await fetchPriorProvenanceMap(verifiedEntries)
+  const priorProvenance = await fetchPriorProvenance(verifiedEntries)
 
   const choices = buildApproveChoices(verifiedEntries, priorProvenance)
   let selected: string[] | undefined
   if (yes) {
     // --yes (agent / scripted runs, no TTY): approve everything eligible —
-    // the same set the interactive default offers (every row pre-checked).
+    // the same set the interactive default offers, every row pre-checked.
     // The rows still print so the prior-provenance annotations stay visible.
     logger.log('--yes: approving all staged packages:')
     for (const choice of choices) {
@@ -206,7 +255,7 @@ export async function runApprove(config: {
     }
     selected = choices.map(c => c.value)
   } else {
-    selected = (await checkbox({
+    selected = (await promptCheckbox({
       message: 'Select staged packages to approve:',
       choices,
     })) as string[] | undefined
@@ -250,11 +299,12 @@ export async function runApprove(config: {
       const member = findWorkspacePackageByName(layout, entry.name)
       const scanSubject = { name: entry.name, version: entry.version }
       // eslint-disable-next-line no-await-in-loop
-      const scanOk = member?.platform
-        ? await scanStagedEntry(scanSubject, {
-            packTarball: () => defaultDownloadStagedTarball(stageId),
-          })
-        : await scanStagedEntry(scanSubject)
+      const scanOk =
+        member && (member.platform || hasMachineBuiltPayload(member.manifest))
+          ? await scanEntry(scanSubject, {
+              packTarball: () => defaultDownloadStagedTarball(stageId),
+            })
+          : await scanEntry(scanSubject)
       if (scanOk) {
         scanned.push(stageId)
       }
@@ -293,7 +343,7 @@ export async function runApprove(config: {
       'No --otp supplied; npm opens a browser window (web-OTP) to authenticate each approve — complete the 2FA there.',
     )
   } else if (!otp) {
-    const entered = (await password({
+    const entered = (await promptPassword({
       message:
         '2FA OTP (TOTP code for batch; leave blank for browser web-OTP):',
       mask: '*',
@@ -315,7 +365,7 @@ export async function runApprove(config: {
     // TTY-wrapped: the registry's web-OTP challenge (no --otp) refuses
     // non-interactive stdio instead of opening the browser.
     // eslint-disable-next-line no-await-in-loop
-    const code = await runInheritTty('pnpm', args, rootPath)
+    const code = await runTty('pnpm', args, rootPath)
     if (code === 0) {
       approved += 1
       const entry = verifiedEntries.find(e => e.stageId === stageId)
@@ -338,7 +388,7 @@ export async function runApprove(config: {
   // GitHub release are created here rather than at --staged time. This runs
   // locally where git, gh, and npm are all authenticated; the CI --staged step
   // holds only an OIDC npm token (no contents:write / GH_TOKEN), so a release
-  // attempt there fails and is also premature (nothing is public yet).
+  // attempt there fails and is also premature, nothing is public yet.
   // `skipRelease` (--no-release) hands the tag + release to the caller — the
   // publish pipeline's release stage owns them there, with verify-time
   // checksums.
@@ -356,8 +406,8 @@ export async function runApprove(config: {
   if (layout.kind === 'multi' && approvedEntries.length > 0) {
     const main = layout.main!
     const version = layout.versionSource.version
-    const released = await releaseBehindLiveGate({
-      isLive: () => isAlreadyPublished(main.name, version),
+    const released = await releaseGate({
+      isLive: () => isPublished(main.name, version),
       packAssets: () => packWorkspaceReleaseAssets(layout),
       pkg: { name: main.name, version },
       registry: 'npm',
@@ -373,8 +423,8 @@ export async function runApprove(config: {
       // The tag + immutable release are the LAST markers: cut them only once
       // the approved version is actually resolvable on the registry.
       // eslint-disable-next-line no-await-in-loop
-      const released = await releaseBehindLiveGate({
-        isLive: () => isAlreadyPublished(entry.name!, entry.version!),
+      const released = await releaseGate({
+        isLive: () => isPublished(entry.name!, entry.version!),
         pkg: { name: entry.name, version: entry.version },
         registry: 'npm',
       })

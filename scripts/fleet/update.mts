@@ -20,9 +20,11 @@
  * scripts/ dir and wire it in via a `"update": "node scripts/fleet/update.mts"`
  * package.json entry.
  */
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
+import { safeDeleteSync } from '@socketsecurity/lib-stable/fs/safe'
 import { getDefaultLogger } from '@socketsecurity/lib-stable/logger/default'
 import { spawn } from '@socketsecurity/lib-stable/process/spawn/child'
 
@@ -32,6 +34,7 @@ import {
   TAZE_PASS_THIRD_PARTY_ARGS,
 } from './constants/taze-passes.mts'
 import { FLEET_CATALOG_YAML, PNPM_WORKSPACE_YAML, REPO_ROOT } from './paths.mts'
+import { writeThroughMirrorLock } from './_shared/mirror-lock.mts'
 import { applyStableAliasReconcile } from './lib/stable-alias.mts'
 import { collectPackumentFailures } from './lib/taze-output.mts'
 import { scanRepoForTelemetry } from './lib/telemetry-scan.mts'
@@ -43,6 +46,11 @@ import {
   findStalePatchKeysInFile,
   formatStalePatchKeysError,
 } from './update/patched-deps.mts'
+import {
+  parsePnpmPatchTempDir,
+  reKeyStalePatches,
+  runPatchPort,
+} from './update/patch-rekey.mts'
 
 // Canonical homes of the fleet-owned pins (wheelhouse-only; absent in member
 // repos, where the lockstep appliers skip them): the fleet catalog template
@@ -145,7 +153,7 @@ async function main(): Promise<void> {
     let { ok, output } = await run(step.cmd, step.args)
     if (ok && step.tazePass && collectPackumentFailures(output).length > 0) {
       // One retry absorbs a transient blip; a persistent failure set is a real
-      // outage (or a blocked endpoint) and must not pass silently.
+      // outage, or a blocked endpoint, and must not pass silently.
       logger.warn(
         'update: taze reported version-lookup failures; retrying the pass once…',
       )
@@ -251,12 +259,69 @@ async function main(): Promise<void> {
     // Stale-patch gate: a bump that leaves a `patchedDependencies` key on the
     // old version strands the very install below (ERR_PNPM_UNUSED_PATCH) — and
     // a half-state referencing a nonexistent patch file once got committed.
-    // Fail loud BEFORE the lockfile resync with the exact re-key instructions;
-    // never silently bump past a keyed patch.
+    // Instead of stopping and asking a human to re-key by hand, auto re-key:
+    // remove the stale key so an install can materialize NEW, `pnpm patch
+    // <name>@<NEW>`, an AI port of the OLD patch's semantic intent onto the
+    // possibly-refactored new code (HIGH tier — patches are often
+    // security-critical), verify, then `pnpm patch-commit`. The re-key is a
+    // HARD gate: only a verified, converged re-key lets the install proceed. A
+    // failed/unverified port — or SKIP_AI_FIX=1 in CI/non-interactive runs —
+    // restores the tree byte-identically and falls back to the exact loud
+    // manual instructions, leaving the old patch in place. Never silently bump
+    // past a keyed patch.
     const stalePatchKeys = findStalePatchKeysInFile(PNPM_WORKSPACE_YAML)
     if (stalePatchKeys.length > 0) {
-      logger.fail(formatStalePatchKeysError(stalePatchKeys))
-      process.exitCode = 1
+      const outcome = await reKeyStalePatches(stalePatchKeys, {
+        detectStaleAfter: () => findStalePatchKeysInFile(PNPM_WORKSPACE_YAML),
+        log: message => logger.info(message),
+        portPatch: context => runPatchPort(context),
+        readFile: relPath =>
+          readFileSync(path.join(REPO_ROOT, relPath), 'utf8'),
+        removeFile: relPath => {
+          safeDeleteSync(path.join(REPO_ROOT, relPath))
+        },
+        runPnpmInstall: async () => {
+          const result = await run('pnpm', ['install'])
+          return { ok: result.ok, output: result.output }
+        },
+        runPnpmPatch: async spec => {
+          const result = await run('pnpm', ['patch', spec])
+          return {
+            ok: result.ok,
+            output: result.output,
+            tempDir: parsePnpmPatchTempDir(result.output),
+          }
+        },
+        runPnpmPatchCommit: async tempDir => {
+          const result = await run('pnpm', ['patch-commit', tempDir])
+          return { ok: result.ok, output: result.output }
+        },
+        skipAi: process.env['SKIP_AI_FIX'] === '1',
+        writeFile: (relPath, content) => {
+          writeThroughMirrorLock(path.join(REPO_ROOT, relPath), content)
+        },
+      })
+      if (outcome.ok) {
+        for (let i = 0, { length } = outcome.rekeyed; i < length; i += 1) {
+          const r = outcome.rekeyed[i]!
+          logger.success(
+            `update: auto-re-keyed '${r.name}' patch ${r.oldVersion} → ${r.newVersion} (${r.newPatchPath}).`,
+          )
+        }
+        const { ok } = await run('pnpm', ['install'])
+        if (!ok) {
+          process.exitCode = process.exitCode || 1
+        }
+      } else {
+        // Re-key did not fully converge: fall back to the loud manual gate with
+        // whatever keys are still stale as the source of truth.
+        logger.fail(
+          formatStalePatchKeysError(
+            findStalePatchKeysInFile(PNPM_WORKSPACE_YAML),
+          ),
+        )
+        process.exitCode = 1
+      }
     } else {
       const { ok } = await run('pnpm', ['install'])
       if (!ok) {
@@ -272,7 +337,7 @@ async function main(): Promise<void> {
   // scripts) and age-checking each formula/cask/tap against its tap-commit date.
   // The node runner age-checks the pinned Node release against its published
   // date the same way. Each runner self-detects
-  // its OWN manifests/sites (skipping vendored trees) and, in its default
+  // its OWN manifests/sites, skipping vendored trees, and, in its default
   // dry-plan mode, prints the soak-cleared updates it WOULD apply — no ecosystem
   // toolchain is needed to plan. Applying stays a deliberate per-ecosystem step
   // (`node scripts/fleet/update/<eco>.mts --soak-days N --apply|--fix`) because it

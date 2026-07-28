@@ -9,19 +9,21 @@
  *   2, or emits the Stop decision JSON), `notify(message)` (stderr, exit 0), or
  *   `undefined` (allow). A hook NEVER calls `process.exit` and runs no
  *   top-level logic beyond `runHook`, so many run in ONE dispatcher process
- *   (one node start, one lib import) instead of a process each — the fix for
+ *   one node start, one lib import, instead of a process each — the fix for
  *   the per-tool-call hook tax. The metadata (`event` / `type` / `matcher` /
  *   `triggers`) is read at BUILD time by `gen/hook-dispatch.mts`, which
  *   imports each hook and wires it by discovery — nothing is registered by
  *   hand, so a hook can never be silently left unwired. A unit test SPAWNS the
- *   hook (stdin payload) or calls `hook.invoke(payload)` directly. Enforced by
+ *   hook, stdin payload, or calls `hook.invoke(payload)` directly. Enforced by
  *   the lint rule `socket/guard-contract` and scaffolded by the
  *   `creating-guards` skill. `runGuard(check)` / `bashGuard` / `editGuard`
  *   remain the lower-level verdict primitives `defineHook` builds on.
  */
 
+import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import v8 from 'node:v8'
 
 import { errorMessage } from '@socketsecurity/lib-stable/errors/message'
@@ -41,6 +43,7 @@ import { bypassPhrasePresent } from './transcript.mts'
 
 import type { BypassMatchOptions } from './transcript.mts'
 import { resolveProjectDir } from './project-dir.mts'
+import { resolveRepoRoot } from './repo-root.mts'
 
 // Lazily resolved, NOT eagerly at module-eval. The shared logger graph
 // (`@socketsecurity/lib`'s logger → primordials/globals) captures `SharedArray
@@ -77,7 +80,7 @@ export interface GuardNotify {
 
 /**
  * A guard's verdict: block (exit 2), notify (stderr, exit 0), or `undefined`
- * (silent allow).
+ * silent allow.
  */
 export type GuardResult = GuardBlock | GuardNotify | undefined
 
@@ -126,7 +129,7 @@ export type HookMatcher = string
 
 /**
  * The declarative spec a hook module passes to `defineHook`. The metadata
- * (event, type, matcher, triggers) is read at BUILD time by the dispatch
+ * event, type, matcher, triggers, is read at BUILD time by the dispatch
  * generator; `check` is the runtime verdict function.
  */
 export interface HookSpec {
@@ -160,7 +163,7 @@ export interface HookSpec {
   // Safety / supply-chain / work-loss hooks omit this — they fire everywhere.
   readonly scope?: 'convention' | undefined
   // Pre-flight keywords: the dispatcher skips importing this hook unless one
-  // appears in the raw payload. Omit for open-ended scanners (always run).
+  // appears in the raw payload. Omit for open-ended scanners, always run.
   readonly triggers?: readonly string[] | undefined
   readonly type: HookType
 }
@@ -253,7 +256,7 @@ export function editGuard(
  */
 let blockedThisProcess = false
 
-// True once any guard in this (possibly shared dispatcher) process has blocked.
+// True once any guard in this, possibly shared dispatcher, process has blocked.
 // The dispatcher reads it to early-exit — covering BOTH block protocols (a
 // PreToolUse exitCode-2 block and a Stop stdout-JSON block, which leaves
 // exitCode 0).
@@ -261,13 +264,84 @@ export function guardBlocked(): boolean {
   return blockedThisProcess
 }
 
+// ── Guard-event log ─────────────────────────────────────────────────────
+// Every non-silent verdict appends one JSONL record under
+// node_modules/.cache/fleet/guard-events/ — the observability layer for
+// guard precision: repeated blocks on one file within minutes are the
+// word-golf signature of a false positive, and without a record those
+// incidents vanish into reworded retries. Aggregate with
+// `node scripts/fleet/guard-stats.mts`. Fail-open: a logging failure
+// never costs, or delays, the verdict itself.
+const GUARD_EVENT_MAX_BYTES = 1024 * 1024
+
+// require-regex-comment: `\b` word boundary, `[a-z][a-z0-9-]*` one
+// kebab-case word, `-(?:detector|guard|nudge|sweeper)` the hook-type
+// suffix — the directory-name convention every hook message leads with.
+const HOOK_NAME_IN_MESSAGE_RE =
+  /\b([a-z][a-z0-9-]*-(?:detector|guard|nudge|sweeper))\b/
+
+function recordGuardEvent(
+  kind: 'block' | 'notify',
+  message: string,
+  payload: ToolCallPayload | undefined,
+  hookName: string | undefined,
+): void {
+  try {
+    // resolveProjectDir()'s last-resort fallback walks up from this file's own
+    // location, which under the wheelhouse is `template/base` — mkdir'ing
+    // node_modules there poisons pnpm workspace resolution for the whole
+    // checkout. Anchor on the git toplevel so every input lands on one store.
+    const dir = path.join(
+      resolveRepoRoot(resolveProjectDir()),
+      'node_modules',
+      '.cache',
+      'fleet',
+      'guard-events',
+    )
+    mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, 'events.jsonl')
+    try {
+      if (statSync(file).size > GUARD_EVENT_MAX_BYTES) {
+        renameSync(file, path.join(dir, 'events.1.jsonl'))
+      }
+    } catch {
+      // Missing file — first event.
+    }
+    // Under the rolldown bundle every module's import.meta.url is the
+    // bundle file, so the dir-derived name collapses to _dist — fall back
+    // to the guard-name convention in the message itself.
+    const hook =
+      hookName && hookName !== '_dist'
+        ? hookName
+        : HOOK_NAME_IN_MESSAGE_RE.exec(message)?.[1]
+    appendFileSync(
+      file,
+      `${JSON.stringify({
+        ts: Date.now(),
+        kind,
+        hook,
+        tool: payload?.tool_name,
+        file: payload ? readFilePath(payload) : undefined,
+        message: message.split('\n')[0]?.slice(0, 200),
+      })}\n`,
+    )
+  } catch {
+    // Fail-open — observability must never wedge a verdict.
+  }
+}
+
 export function applyGuardResult(
   result: GuardResult,
   payload?: ToolCallPayload | undefined,
+  options?: { hookName?: string | undefined } | undefined,
 ): void {
+  const opts = { __proto__: null, ...options } as {
+    hookName?: string | undefined
+  }
   if (!result) {
     return
   }
+  recordGuardEvent(result.kind, result.message, payload, opts.hookName)
   if (result.kind === 'block') {
     blockedThisProcess = true
     // A Stop event (no tool_name) blocks via Claude Code's stdout JSON decision
@@ -313,7 +387,11 @@ export async function runGuard(
     if (!payload) {
       return
     }
-    applyGuardResult(await check(payload), payload)
+    // The hook's directory name identifies it in the guard-event log.
+    const hookName = moduleUrl
+      ? path.basename(path.dirname(fileURLToPath(moduleUrl)))
+      : undefined
+    applyGuardResult(await check(payload), payload, { hookName })
   } catch (e) {
     // Fail-open stays fail-open in prod — a buggy hook must never wedge the
     // session. But a silent `catch {}` here means a genuine environment-
@@ -397,7 +475,7 @@ function withBypass(
  * A `scope: 'convention'` spec gets its check wrapped so the hook stands down
  * when the acted-on repo is not fleet-managed (no `.config/fleet/` at its root)
  * — fleet conventions never bind a foreign repo unless it opts in by carrying
- * that directory. A `bypass` spec (auto mode) wraps the check so a block/nudge
+ * that directory. A `bypass` spec, auto mode, wraps the check so a block/nudge
  * honors the declared phrase (withBypass). The module's own exported raw
  * `check` is untouched, so in-process tests still exercise the logic.
  */
@@ -445,7 +523,7 @@ export async function runHook(
 }
 
 // True when the guard should actually read the payload + run: under the
-// dispatcher (env set), or when this module IS the process entrypoint.
+// dispatcher, env set, or when this module IS the process entrypoint.
 export function isGuardRunContext(moduleUrl: string | undefined): boolean {
   // A snapshot BUILD pass is never a run context. A bundled hook's `runHook`
   // sits in the snapshot bundle's top-level eval graph, and when

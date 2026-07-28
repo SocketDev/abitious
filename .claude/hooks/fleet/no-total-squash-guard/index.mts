@@ -27,7 +27,7 @@
 //
 // Fails open on git errors / detached refs / missing remote-tracking refs:
 // the guard protects a specific hazardous shape, it is not a general
-// force-push gate (that's no-force-push-guard's job).
+// force-push gate, that's no-force-push-guard's job.
 //
 // Reads a Claude Code PreToolUse JSON payload from stdin:
 //   { "tool_name": "Bash",
@@ -124,16 +124,27 @@ export function matchTotalSquash(
         continue
       }
       const base = gitOut(repoDir, ['merge-base', localSha, remoteSha])
-      if (!base || base === remoteSha) {
-        // Fast-forward (or unrelated histories) — not a rewrite.
+      if (base === remoteSha) {
+        // Fast-forward — not a rewrite.
         continue
       }
+      // No merge-base = UNRELATED histories — the orphan-root total squash
+      // this guard exists for. Absolute counts stand in for the range.
       const replaced = Number(
-        gitOut(repoDir, ['rev-list', '--count', `${base}..${remoteSha}`]) ??
-          '0',
+        gitOut(
+          repoDir,
+          base
+            ? ['rev-list', '--count', `${base}..${remoteSha}`]
+            : ['rev-list', '--count', remoteSha],
+        ) ?? '0',
       )
       const added = Number(
-        gitOut(repoDir, ['rev-list', '--count', `${base}..${localSha}`]) ?? '0',
+        gitOut(
+          repoDir,
+          base
+            ? ['rev-list', '--count', `${base}..${localSha}`]
+            : ['rev-list', '--count', localSha],
+        ) ?? '0',
       )
       if (replaced >= MIN_REPLACED && added <= 1) {
         return { added, branch, replaced }

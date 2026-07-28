@@ -16,7 +16,7 @@
  *     --check  exit 2 if the on-disk table differs from freshly generated.
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
@@ -48,10 +48,11 @@ export {
   resolveHookBundleOut,
 } from '../paths.mts'
 import { isMainModule } from '../_shared/is-main-module.mts'
+import { writeThroughMirrorLock } from '../_shared/mirror-lock.mts'
 
 /**
  * Render the dispatch-table.mts source from the eligible-hook list. Each hook
- * gets a STATIC import (so rolldown bundles it) and a table row keyed by event.
+ * gets a STATIC import, so rolldown bundles it, and a table row keyed by event.
  */
 export type TableVariant = 'excluded' | 'full' | 'snapshot'
 
@@ -150,7 +151,7 @@ export function renderDispatchTable(
     .join('\n')
   // Every variant exports the hints: dispatch-snapshot-entry imports them
   // through './dispatch-table.mts', which resolves to the FULL table outside
-  // the snapshot build (dev runs, type-checking) and to the snapshot variant
+  // the snapshot build, dev runs, type-checking, and to the snapshot variant
   // inside it — the export must exist in both.
   const hints =
     '\n' + renderExcludedHints(allHooks.filter(h => h.snapshotExcluded))
@@ -309,20 +310,22 @@ function main(): void {
     return
   }
   for (const [variant, outPath] of TABLE_OUTPUTS) {
-    writeFileSync(
+    // The outputs live inside the cascade-locked hook mirror; the shared helper
+    // lifts the read-only lock around each regeneration write.
+    writeThroughMirrorLock(
       outPath,
       generateDispatchTableSource(FLEET_HOOKS_DIR, variant),
     )
   }
-  writeFileSync(
+  writeThroughMirrorLock(
     DISPATCH_MANIFEST_PATH,
     generateDispatchManifestSource(FLEET_HOOKS_DIR),
   )
-  // Dogfood: the wheelhouse carries template/base/ (a member does not). Mirror
+  // Dogfood: the wheelhouse carries template/base/ a member does not. Mirror
   // the generated full table + manifest into the template so its CI readers +
   // the release-bundle walk find them — both are gitignored + never committed,
   // so a fresh checkout has none. Computed relative to REPO_ROOT so this file
-  // stays cascade-safe (no wheelhouse-only imports). Pure JS (no rolldown), so
+  // stays cascade-safe, no wheelhouse-only imports. Pure JS, no rolldown, so
   // it runs cross-platform in CI setup where build-hook-bundle's native rolldown
   // spawn does not.
   const templateDispatch = path.join(
@@ -330,15 +333,19 @@ function main(): void {
     'template/base/.claude/hooks/fleet/_dispatch',
   )
   if (existsSync(templateDispatch)) {
-    writeFileSync(
-      path.join(templateDispatch, 'dispatch-table.mts'),
+    // The template mirror is cascade-locked read-only in the wheelhouse just
+    // like the live outputs above; lift the lock around each write.
+    const templateTable = path.join(templateDispatch, 'dispatch-table.mts')
+    writeThroughMirrorLock(
+      templateTable,
       generateDispatchTableSource(FLEET_HOOKS_DIR),
     )
-    writeFileSync(
-      path.join(
-        REPO_ROOT,
-        'template/base/.claude/hooks/fleet/_shared/dispatch-manifest.json',
-      ),
+    const templateManifest = path.join(
+      REPO_ROOT,
+      'template/base/.claude/hooks/fleet/_shared/dispatch-manifest.json',
+    )
+    writeThroughMirrorLock(
+      templateManifest,
       generateDispatchManifestSource(FLEET_HOOKS_DIR),
     )
   }

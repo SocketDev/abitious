@@ -1,5 +1,5 @@
 /**
- * @file Fleet lint: validate (and optionally fix) the GitHub repository
+ * @file Fleet lint: validate, and optionally fix, the GitHub repository
  *   settings against the canonical fleet config. Why this exists: a half-dozen
  *   repo settings determine whether the fleet enforces signed commits,
  *   restricts PRs to collaborators, disables wikis/discussions/projects/forks,
@@ -18,14 +18,14 @@
  *   needs `repo:read`; `--fix` needs `repo:admin` (PATCH
  *   /repos/{owner}/{repo}). Usage: node scripts/fleet/lint-github-settings.mts.
  *
- *   # audit (uses cache) node scripts/fleet/lint-github-settings.mts --force
+ *   # audit, uses cache, node scripts/fleet/lint-github-settings.mts --force
  *
- *   audit (skip cache) node scripts/fleet/lint-github-settings.mts --fix #
+ *   audit, skip cache, node scripts/fleet/lint-github-settings.mts --fix #
  *   audit + apply fixes node scripts/fleet/lint-github-settings.mts --json #
  *   machine-readable. Detection helpers (`gh api` wrapper, app/workflow probes)
- *   live in `lint-github-settings-detect.mts`; the settings→findings decision
- *   tree lives in `lint-github-settings-evaluate.mts`; shared types live in
- *   `lint-github-settings-types.mts` — split out to keep each file under the
+ *   live in `lint-github-settings/detect.mts`; the settings→findings decision
+ *   tree lives in `lint-github-settings/evaluate.mts`; shared types live in
+ *   `lint-github-settings/types.mts` — split out to keep each file under the
  *   500-line soft cap.
  */
 
@@ -41,15 +41,15 @@ import {
   loadCustomProperties,
   readDeclaredApps,
   resolveRepo,
-} from './lint-github-settings-detect.mts'
-import { evaluate } from './lint-github-settings-evaluate.mts'
+} from './lint-github-settings/detect.mts'
+import { evaluate } from './lint-github-settings/evaluate.mts'
 import type {
   BranchProtectionPayload,
   CacheEntry,
   CliFlags,
   Finding,
   RepoApiPayload,
-} from './lint-github-settings-types.mts'
+} from './lint-github-settings/types.mts'
 import { isMainModule } from './_shared/is-main-module.mts'
 
 // Inline path equivalent of the wheelhouse template's paths.mts helper.
@@ -286,7 +286,7 @@ export function main(
   )
   // Union of apps actually-observed via check-suites + apps
   // declared in .github/required-apps.yml. Declared-apps are how
-  // socket-trufflehog (which only posts on findings) gets credit.
+  // socket-trufflehog, which only posts on findings, gets credit.
   const installedApps = new Set<string>([
     ...detectInstalledApps(repo, defaultBranch),
     ...readDeclaredApps(),
@@ -325,7 +325,7 @@ export function main(
   printReport(findings, repo, { json: flags.json })
 
   // Exit-status policy: only error-severity findings fail the run.
-  // Warnings (custom-property downgrades, mid-remediation flags) are
+  // Warnings, custom-property downgrades, mid-remediation flags, are
   // informational — they show in the report but don't block CI or
   // the maintainer's local `pnpm run` chain. Cache the result either
   // way so the 7-day TTL is honored; the next run will re-check.

@@ -56,7 +56,7 @@ export interface VitestRepoConfig {
  * (.config/repo/socket-wheelhouse.json; see paths.mts's resolver order for the
  * fallbacks). `slow` = heavy suites (subprocess-per-case, e.g. hook integration
  * specs); `mid` = isolated in-process suites (env-mutating / vi.mock /
- * fs-heavy); `fast` = the implicit complement (pure in-process). The runner's
+ * fs-heavy); `fast` = the implicit complement, pure in-process. The runner's
  * `--lane <fast|mid|slow>` flag (scripts/fleet/test.mts) selects one, and bare
  * `pnpm test` defaults to `fast` for a quick local loop. The lane filter is
  * INERT under coverage and for an unset FLEET_LANE (an --all / scoped / cover
@@ -141,11 +141,11 @@ export function resolveMaxWorkers(): number {
 }
 /**
  * Fast-fail bail count. A coverage run MUST execute the FULL suite to measure
- * it, so bail is INERT under coverage (like the lane filter): bailing on the
+ * it, so bail is INERT under coverage, like the lane filter: bailing on the
  * first failure aborts ~half the suite and its subprocess coverage, collapsing
  * the aggregate to a phantom partial (#79: CI read 36% vs the true ~73% because
  * one failing test bailed the run after 249 of 1224 files). Plain CI test jobs
- * (no coverage) keep fast-fail bail=1; local (no CI) runs the whole suite.
+ * no coverage, keep fast-fail bail=1; local (no CI) runs the whole suite.
  * Pure so the resolution is unit-testable without a real CI/coverage env.
  */
 export function resolveBail(isCoverage: boolean, isCI: boolean): number {
@@ -208,7 +208,7 @@ const repoResolveAlias = resolveVitestAlias()
 
 // Lane resolution. The runner sets FLEET_LANE (bare `pnpm test` → 'fast'); the
 // filter is inert under coverage and for an unset lane, so --all / scoped /
-// cover runs traverse every lane (nothing is cut from the gate).
+// cover runs traverse every lane, nothing is cut from the gate.
 const vitestLanes = readVitestLanes()
 const slowLaneGlobs = vitestLanes.slow ?? []
 const midLaneGlobs = vitestLanes.mid ?? []
@@ -248,7 +248,7 @@ export default defineConfig({
     globals: false,
     environment: 'node',
     // Test setup lives under test/scripts/{fleet,repo}/setup.mts — fleet-canonical
-    // setup (nock fail-closed, env scrubbing) in fleet/, repo-specific setup in
+    // setup, nock fail-closed, env scrubbing, in fleet/, repo-specific setup in
     // repo/. Both are optional: vitest skips a setupFile that doesn't exist via
     // the existsSync filter so scaffolding-only repos don't error.
     setupFiles: [
@@ -383,14 +383,34 @@ export default defineConfig({
     // retain 16 workers, while CI matches its 4 available cores.
     maxWorkers: resolveMaxWorkers(),
     // Coverage runs with V8 instrumentation that spawned children inherit, so
-    // spawn-heavy tests (hook integration specs launch a node child per case)
+    // spawn-heavy tests, hook integration specs launch a node child per case
     // legitimately exceed 10s there. CI gets a 60s budget unconditionally:
     // 2-core runners × parallel workers starve spawn-per-case suites
     // (RuleTester spawns one oxlint child per case) — the 10s/30s ceilings
     // killed lint-rule suites mid-queue on every OS while the same files pass
-    // locally.
-    testTimeout: getCI() ? 60_000 : isCoverageEnabled ? 30_000 : 10_000,
-    hookTimeout: getCI() ? 60_000 : isCoverageEnabled ? 30_000 : 10_000,
+    // locally. CI *with* coverage is strictly heavier than either alone
+    // (instrumentation + 4-core contention + thousands of instrumented child
+    // spawns in one run), so it gets the longest budget — the plain-CI 60s
+    // still timed out the spawn-per-case hook specs (npm-2fa-needs-pty-guard,
+    // single-lander-guard) under peak release-cover contention, losing their
+    // coverage and failing the gate while all four metrics were above
+    // threshold. Complete the ladder rather than shave the threshold.
+    testTimeout:
+      getCI() && isCoverageEnabled
+        ? 120_000
+        : getCI()
+          ? 60_000
+          : isCoverageEnabled
+            ? 30_000
+            : 10_000,
+    hookTimeout:
+      getCI() && isCoverageEnabled
+        ? 120_000
+        : getCI()
+          ? 60_000
+          : isCoverageEnabled
+            ? 30_000
+            : 10_000,
     bail: resolveBail(isCoverageEnabled, Boolean(getCI())),
     // Coverage shape comes from the fleet base merged with the repo-owned
     // `.config/repo/coverage.json` overlay (include replace, exclude

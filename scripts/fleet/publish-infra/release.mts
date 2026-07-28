@@ -11,9 +11,12 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 
+import { errorMessage } from '@socketsecurity/lib-stable/errors/message'
 import { safeDeleteSync } from '@socketsecurity/lib-stable/fs/safe'
 import { sleep } from '@socketsecurity/lib-stable/promises/timers'
 
+import { createTagRef } from '../lib/github-git-refs.mts'
+import { formatReleaseGapFailure } from '../_shared/release-gap-recovery.mts'
 import { resolveReleaseSubject } from '../_shared/release-subject.mts'
 import { withPrunedPackManifest } from './npm/pack-manifest.mts'
 import { logger, rootPath, runCapture } from './shared.mts'
@@ -115,10 +118,19 @@ export async function requireRegistryLive(config: {
 /**
  * The shared post-publish tail every channel funnels through: gate on
  * registry liveness (requireRegistryLive), then — and only then — create the
- * git tag + immutable GitHub release. Returns false (after failing loud)
- * when the version never turned up, so the caller can set a non-zero exit
- * code; the release is never attempted in that case. `ensureRelease` and
- * `sleepFn` are injectable for tests.
+ * git tag + immutable GitHub release.
+ *
+ * Returns false, after failing loud, on EITHER half: the version never turned
+ * up, or the tag/release leg itself failed. The second half is the dangerous
+ * one — the registry write already landed and cannot be undone, so a
+ * `false`/throwing tag step gets the full four-part release-gap message naming
+ * the reconcile command, never a bare exit code. A thrown error inside the
+ * release leg is caught and reported the same way: the caller must never see a
+ * publish tail die silently mid-window.
+ *
+ * `ensureRelease` and `sleepFn` are injectable for tests; an injected seam
+ * declared `Promise<void>` keeps its old meaning (only an explicit `false`
+ * counts as a failure).
  */
 export async function releaseBehindLiveGate(config: {
   attempts?: number | undefined
@@ -129,7 +141,7 @@ export async function releaseBehindLiveGate(config: {
         options?:
           | { packAssets?: (() => Promise<string[]>) | undefined }
           | undefined,
-      ) => Promise<void>)
+      ) => Promise<boolean | void>)
     | undefined
   isLive: () => Promise<boolean>
   packAssets?: (() => Promise<string[]>) | undefined
@@ -150,17 +162,39 @@ export async function releaseBehindLiveGate(config: {
     return false
   }
   const ensureRelease = cfg.ensureRelease ?? ensureTagAndRelease
-  await ensureRelease(
-    cfg.pkg,
-    cfg.packAssets ? { packAssets: cfg.packAssets } : undefined,
+  let saw: string | undefined
+  try {
+    const ensured = await ensureRelease(
+      cfg.pkg,
+      cfg.packAssets ? { packAssets: cfg.packAssets } : undefined,
+    )
+    if (ensured === false) {
+      saw = 'the tag + GitHub release step reported failure (details above)'
+    }
+  } catch (e) {
+    saw = `the tag + GitHub release step threw: ${errorMessage(e)}`
+  }
+  if (saw === undefined) {
+    return true
+  }
+  logger.fail(
+    `Release gap after a successful ${cfg.registry} publish.\n` +
+      formatReleaseGapFailure({
+        name: cfg.pkg.name,
+        registry: cfg.registry,
+        saw,
+        version: cfg.pkg.version,
+        where:
+          'releaseBehindLiveGate (publish-infra/release.mts), post-publish tail',
+      }),
   )
-  return true
+  return false
 }
 
 /**
  * Default (npm) release-asset packer: `pnpm pack` the tarball in this same run
- * (the bytes the registry received) + write a `checksums.txt` (sha1 + sha512),
- * returning both paths. Returns an empty array (with a warning) when the pack
+ * the bytes the registry received + write a `checksums.txt` (sha1 + sha512),
+ * returning both paths. Returns an empty array, with a warning, when the pack
  * fails, so the release still lands without assets. Extracted so
  * `ensureTagAndRelease` can accept an alternate packer without changing the npm
  * behavior.
@@ -198,15 +232,18 @@ async function defaultPackAssets(pkg: {
 
 /**
  * Post-publish: make the git tag + GitHub release exist for this version.
- * Tag-if-missing (push tolerated when the remote already has it); the release
+ * Tag-if-missing, push tolerated when the remote already has it; the release
  * body is the version's CHANGELOG section; the release ships IMMUTABLE via the
  * 3-step draft → upload → undraft flow. Assets are the tarball packed from
  * this same tree in this same run — the identical bytes the registry just
  * received — plus a checksums file (sha1 + sha512), so the GitHub-release
  * shasum is directly comparable to the npm staged/published shasum.
  *
- * A failure here exits non-zero so the gap is visible, but the registry write
- * has already succeeded — the operator fixes the tag/release, not the publish.
+ * Returns TRUE only when the tag exists ON ORIGIN and the GitHub release is
+ * published, or already existed. Every failure path returns FALSE and sets a
+ * non-zero exit code, so the caller (releaseBehindLiveGate) can raise the
+ * four-part release-gap message: the registry write has already succeeded, so
+ * a quiet `void` here is exactly how a half-done release escapes unnoticed.
  *
  * `options.packAssets` generalizes the release asset packing off npm: when
  * provided it is called to produce the asset file paths (the cargo tier passes
@@ -223,7 +260,7 @@ export async function ensureTagAndRelease(
         packAssets?: (() => Promise<string[]>) | undefined
       }
     | undefined,
-): Promise<void> {
+): Promise<boolean> {
   const opts = { __proto__: null, ...options } as {
     packAssets?: (() => Promise<string[]>) | undefined
   }
@@ -238,13 +275,59 @@ export async function ensureTagAndRelease(
     if (created.code !== 0) {
       logger.fail(`could not create tag ${tagName}`)
       process.exitCode = 1
-      return
+      return false
     }
     logger.log(`Created tag ${tagName}.`)
   }
-  // Tolerate an already-pushed tag (a parallel/earlier push); any other push
-  // failure surfaces below via the release steps needing the remote tag.
-  await runCapture('git', ['push', 'origin', tagName], rootPath)
+  // A non-zero push is tolerated ONLY when the remote already carries the tag
+  // (a parallel/earlier push). Any other push failure is fatal here: an
+  // unpushed tag leaves no public marker at all, and `gh release create
+  // --verify-tag` would fail downstream with the push error already scrolled
+  // away. This is the exact shape that left a promoted version tagless.
+  const pushed = await runCapture('git', ['push', 'origin', tagName], rootPath)
+  if (pushed.code !== 0) {
+    const remote = await runCapture(
+      'git',
+      ['ls-remote', '--tags', 'origin', `refs/tags/${tagName}`],
+      rootPath,
+    )
+    if (remote.code !== 0 || !remote.stdout.includes(`refs/tags/${tagName}`)) {
+      // CI checkouts run `persist-credentials: false`, so the plain git push
+      // above has no credential and exits 128 — retry over the GitHub API
+      // with the App token the branch-based bump already holds. This is the
+      // exact shape that stranded a published crate version tagless while
+      // its release branch was already gone.
+      const apiRepo = process.env['GITHUB_REPOSITORY']
+      const apiToken =
+        process.env['RELEASE_APP_TOKEN'] || process.env['GH_TOKEN'] || ''
+      const tagSha = await runCapture(
+        'git',
+        ['rev-parse', `refs/tags/${tagName}`],
+        rootPath,
+      )
+      if (!apiRepo || !apiToken || tagSha.code !== 0) {
+        logger.fail(
+          `could not push tag ${tagName} to origin (git push exited ${pushed.code}) ` +
+            `and origin does not carry it.\n` +
+            `  Wanted: refs/tags/${tagName} on origin before the GitHub release is cut.\n` +
+            `  Fix: resolve the push (auth? protected ref? network?) — in CI, set ` +
+            `GITHUB_REPOSITORY and an App token env so the GitHub API route can ` +
+            `create the tag — and re-run the reconcile below.`,
+        )
+        process.exitCode = 1
+        return false
+      }
+      await createTagRef({
+        repo: apiRepo,
+        sha: tagSha.stdout.trim(),
+        tag: tagName,
+        token: apiToken,
+      })
+      logger.log(`Created tag ${tagName} on origin via the GitHub API.`)
+    } else {
+      logger.log(`Tag ${tagName} already on origin; continuing.`)
+    }
+  }
 
   const view = await runCapture(
     'gh',
@@ -253,7 +336,7 @@ export async function ensureTagAndRelease(
   )
   if (view.code === 0) {
     logger.log(`Release ${tagName} already exists; leaving it untouched.`)
-    return
+    return true
   }
 
   const notesFile = path.join(os.tmpdir(), `release-notes-${pkg.version}.md`)
@@ -286,7 +369,7 @@ export async function ensureTagAndRelease(
     if (create.code !== 0) {
       logger.fail(`gh release create failed (${create.code})`)
       process.exitCode = 1
-      return
+      return false
     }
     if (assets.length) {
       const upload = await runCapture(
@@ -297,7 +380,7 @@ export async function ensureTagAndRelease(
       if (upload.code !== 0) {
         logger.fail(`gh release upload failed (${upload.code})`)
         process.exitCode = 1
-        return
+        return false
       }
     }
     const undraft = await runCapture(
@@ -308,9 +391,10 @@ export async function ensureTagAndRelease(
     if (undraft.code !== 0) {
       logger.fail(`gh release edit --draft=false failed (${undraft.code})`)
       process.exitCode = 1
-      return
+      return false
     }
     logger.success(`Release ${tagName} published from the CHANGELOG entry.`)
+    return true
   } finally {
     // The checksums file is written into the repo tree solely so `gh release
     // upload` can attach it — remove it once the upload path is done (success

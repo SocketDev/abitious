@@ -13,7 +13,7 @@
  *   frontmatter `name:` MATCHES its directory name — so the mirror cannot be a
  *   symlink (the `name:` would mismatch). It is a generated COPY with `name:`
  *   rewritten to `<tier>-<name>`. Supporting files (reference.md, scripts/, …)
- *   are copied verbatim. Tool-restriction caveat (documented, by design):
+ *   are copied verbatim. Tool-restriction caveat, documented, by design:
  *   Claude's per-skill `allowed-tools` does NOT port — Codex/OpenCode gate
  *   tools at the agent level. A mirrored skill runs with whatever the
  *   Codex/OpenCode session allows. Mirroring all skills is the chosen policy;
@@ -24,13 +24,18 @@
  *   expose a smaller lazy catalog through `codexSkills.default` in
  *   `.config/socket-wheelhouse.json`; `--only` and `AGENTS_SKILLS` override it.
  *   Idempotent:
- *   regenerates `.agents/skills/` from scratch each run (clears stale entries).
+ *   regenerates `.agents/skills/` from scratch each run, clears stale entries.
  *   The `agents-skills-mirror-current` check fails
  *   `check --all` if the committed mirror drifts from the source — the mirror
  *   is generated, never hand-edited. Usage: node
- *   scripts/fleet/gen/agents-skills-mirror.mts [--check] (no flag) regenerate
+ *   scripts/fleet/gen/agents-skills-mirror.mts [--check], no flag, regenerate
  *   the mirror in place. --check report drift without writing (exit 1 if
  *   stale); used by the check-only twin.
+ *   MEMBERSHIP GATE — regeneration writes into the resolved repo root, so the
+ *   root must be a fleet-roster member (origin remote resolved against
+ *   `.claude/skills/fleet/cascading-fleet/lib/fleet-repos.json`); a
+ *   non-member root refuses. Audited escape hatch:
+ *   `--allow-non-member --reason "<why>"`. `--check` reads only — exempt.
  */
 
 import {
@@ -48,6 +53,10 @@ import { getDefaultLogger } from '@socketsecurity/lib-stable/logger/default'
 import { normalizePath } from '@socketsecurity/lib-stable/paths/normalize'
 
 import { REPO_ROOT } from '../paths.mts'
+import {
+  gateWriteDest,
+  parseNonMemberOverride,
+} from '../_shared/fleet-membership.mts'
 import { isMainModule } from '../_shared/is-main-module.mts'
 
 const logger = getDefaultLogger()
@@ -261,7 +270,7 @@ export function findMirrorDrift(
   const drift: string[] = []
   const agentsSkills = path.join(repoRoot, '.agents', 'skills')
   const expectedDirs = new Set(entries.map(e => e.mirrorName))
-  // Stale mirror dirs (no longer a source skill).
+  // Stale mirror dirs, no longer a source skill.
   let actualDirs: string[] = []
   try {
     actualDirs = readdirSync(agentsSkills)
@@ -328,6 +337,24 @@ function main(): void {
       `[gen/agents-skills-mirror] .agents/skills/ in sync (${entries.length} skills mirrored).`,
     )
     return
+  }
+  // Membership gate — the mirror WRITES `.agents/skills/` into the repo the
+  // script resolves as its root, so a copy of this generator running inside a
+  // non-member clone must refuse instead of emitting fleet payload there.
+  // `--check` reads only, so it is exempt. Escape hatch — audited, explicit:
+  // `--allow-non-member --reason "<why>"`.
+  const gate = gateWriteDest({
+    destDir: REPO_ROOT,
+    override: parseNonMemberOverride(process.argv.slice(2)),
+    toolName: 'gen/agents-skills-mirror',
+  })
+  if (!gate.allowed) {
+    logger.error(gate.message)
+    process.exitCode = 1
+    return
+  }
+  if (gate.note !== undefined) {
+    logger.warn(gate.note)
   }
   writeMirror(REPO_ROOT, entries)
   logger.success(

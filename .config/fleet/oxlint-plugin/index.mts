@@ -14,6 +14,7 @@
 
 import bagParamOptionalityNaming from './fleet/bag-param-optionality-naming/index.mts'
 import exportTopLevelFunctions from './fleet/export-top-level-functions/index.mts'
+import exportedNameHasDomainWord from './fleet/exported-name-has-domain-word/index.mts'
 import guardContract from './fleet/guard-contract/index.mts'
 import inclusiveLanguage from './fleet/inclusive-language/index.mts'
 import maxFileLines from './fleet/max-file-lines/index.mts'
@@ -42,6 +43,7 @@ import noNamespaceImport from './fleet/no-namespace-import/index.mts'
 import noNpxDlx from './fleet/no-npx-dlx/index.mts'
 import noOptionsParamMutation from './fleet/no-options-param-mutation/index.mts'
 import noPackageManagerAutoUpdateReenable from './fleet/no-package-manager-auto-update-reenable/index.mts'
+import noParentheticalAside from './fleet/no-parenthetical-aside/index.mts'
 import noPlaceholders from './fleet/no-placeholders/index.mts'
 import noPlatformSpecificImport from './fleet/no-platform-specific-import/index.mts'
 import noPrivatePathInSource from './fleet/no-private-path-in-source/index.mts'
@@ -126,6 +128,7 @@ const plugin = {
   rules: {
     'bag-param-optionality-naming': bagParamOptionalityNaming,
     'export-top-level-functions': exportTopLevelFunctions,
+    'exported-name-has-domain-word': exportedNameHasDomainWord,
     'guard-contract': guardContract,
     'inclusive-language': inclusiveLanguage,
     'max-file-lines': maxFileLines,
@@ -155,6 +158,7 @@ const plugin = {
     'no-options-param-mutation': noOptionsParamMutation,
     'no-package-manager-auto-update-reenable':
       noPackageManagerAutoUpdateReenable,
+    'no-parenthetical-aside': noParentheticalAside,
     'no-placeholders': noPlaceholders,
     'no-platform-specific-import': noPlatformSpecificImport,
     'no-private-path-in-source': noPrivatePathInSource,

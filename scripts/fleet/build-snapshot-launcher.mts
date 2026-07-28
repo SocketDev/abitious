@@ -8,7 +8,7 @@
  *   SECOND `node --snapshot-blob …` — a two-process tax (~30 ms over
  *   snapshot-direct) that erases the snapshot's win. The launcher removes it:
  *
- *     - POSIX (mac, linux): `dispatch-launcher.c` re-execs node in ONE process
+ *     - POSIX, mac, linux: `dispatch-launcher.c` re-execs node in ONE process
  *       transition (`execv` REPLACES the launcher image — no parent node, no
  *       fork, no wait, no second resident process). Measured ~1.4 ms intrinsic
  *       overhead over a bare `execv`, ≈ snapshot-direct, ~1.25× faster than the
@@ -16,7 +16,7 @@
  *       x64 1.36× vs coverage-matched compile-cache index.cjs — Docker-measured).
  *     - WINDOWS (`dispatch-launcher-win.c`): Windows has no image-replacing
  *       execv, so the launcher `CreateProcess`es node, `WaitForSingleObject`s,
- *       and propagates the exit code (a thin native parent that only waits). It
+ *       and propagates the exit code, a thin native parent that only waits. It
  *       still removes the loader's full PARENT-node startup (two node processes
  *       → one node + a ~150 KB native parent). Whether that preserves the win is
  *       a Windows-CI question (CreateProcess is heavier than execv and the thin
@@ -48,13 +48,17 @@
 
 import { spawnSync } from '@socketsecurity/lib-stable/process/spawn/child'
 import crypto from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import process from 'node:process'
 
 import { DISPATCH_DIR } from './gen/hook-dispatch.mts'
 import { isMainModule } from './_shared/is-main-module.mts'
+import {
+  liftMirrorLockSync,
+  writeThroughMirrorLock,
+} from './_shared/mirror-lock.mts'
 
 const require = createRequire(import.meta.url)
 const { blobPath } = require(
@@ -67,7 +71,7 @@ const SNAPSHOT_BUNDLE = path.join(DISPATCH_DIR, 'snapshot-bundle.cjs')
 
 /**
  * Per-platform build recipe. The HOST row is what `main()` runs; the others are
- * the Docker/CI incantations (documented, not executed here) that produce the
+ * the Docker/CI incantations, documented, not executed here, that produce the
  * launcher for a non-host target. Cross-compiling the WINDOWS launcher is done
  * with mingw from a POSIX host (proven: PE32+ x64 + PE32 i686 both build); the
  * arm64-windows target has no mingw toolchain and is built on the
@@ -136,7 +140,7 @@ export interface CompilerPlan {
 
 /**
  * Pick the compiler + flags for this host: mingw gcc or MSVC `cl` on Windows
- * (prefer gcc when present), plain `cc` everywhere else.
+ * prefer gcc when present, plain `cc` everywhere else.
  */
 export function selectCompiler(
   src: string,
@@ -215,6 +219,12 @@ function buildHostLauncher(): boolean {
     isWin && spawnSync('gcc', ['--version'], { stdio: 'ignore' }).status === 0
   const { args, cc } = selectCompiler(src, outBin, { haveGcc, isWin })
 
+  // The launcher binary lives inside the cascade-locked hook mirror; a prior
+  // cascade leaves it 0555, and the linker cannot overwrite a read-only output
+  // (`ld: can't write output file`). Lift the lock so cc can rewrite it — the
+  // binary is a gitignored generated output, freed the same way rolldown's
+  // outputs are in build-hook-snapshot.mts.
+  liftMirrorLockSync(outBin)
   const r = spawnSync(cc, args, { stdio: 'inherit' })
   if (r.status !== 0 || !existsSync(outBin)) {
     process.stderr.write(`${cc} failed (exit ${String(r.status)}).\n`)
@@ -234,8 +244,19 @@ function writeSidecars(): void {
     .digest('hex')
     .slice(0, 16)
   const blobOut = blobPath('dispatch', sourceHash)
-  writeFileSync(path.join(DISPATCH_DIR, 'node.path'), `${process.execPath}\n`)
-  writeFileSync(path.join(DISPATCH_DIR, 'snapshot-blob.path'), `${blobOut}\n`)
+  // Both sidecars live inside the cascade-locked hook mirror (a prior cascade
+  // leaves node.path 0444). A plain writeFileSync EACCESes on node.path and
+  // never reaches snapshot-blob.path — the launcher then can't read the blob
+  // path and perma-fails-open to the compile-cache baseline. Route through the
+  // shared lift-around-write so each write survives the lock.
+  writeThroughMirrorLock(
+    path.join(DISPATCH_DIR, 'node.path'),
+    `${process.execPath}\n`,
+  )
+  writeThroughMirrorLock(
+    path.join(DISPATCH_DIR, 'snapshot-blob.path'),
+    `${blobOut}\n`,
+  )
   process.stdout.write(
     `  node.path=${process.execPath}\n  snapshot-blob.path=${blobOut}\n`,
   )

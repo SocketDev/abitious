@@ -9,7 +9,7 @@
  *   can recognize an auto-landed commit as a logical grouping rather than a
  *   rival's work (see docs/agents.md/fleet/parallel-claude-sessions.md ->
  *   "Auto-landed commits are expected").
- *   Safety: dry-run by default (prints the plan). `--commit` lands each group
+ *   Safety: dry-run by default, prints the plan. `--commit` lands each group
  *   via `git add -- <paths>` + `git commit -o <paths> -S` (surgical, signed —
  *   never `-A`, never a bare commit). Only paths under known SOURCE areas are
  *   landed; untracked-by-default trees (vendor/build/etc.) and anything outside
@@ -31,6 +31,7 @@ import {
   isGenerated,
   isUnmerged,
 } from '../../.claude/hooks/fleet/_shared/landable.mts'
+import { acquireGitMutex, retryGit } from './_shared/git-mutex.mts'
 import { parsePorcelain } from './_shared/git-porcelain.mts'
 import { summarizeGroups } from './land-work/ai-summary.mts'
 import { commitMessage } from './land-work/message.mts'
@@ -52,7 +53,7 @@ const UNTRACKED_BY_DEFAULT_PREFIXES = [
 ]
 
 // Top-level source areas land-work is willing to commit. Anything outside these
-// (a stray file at the repo root, a runtime artifact) is surfaced, not landed.
+// a stray file at the repo root, a runtime artifact, is surfaced, not landed.
 const SOURCE_AREA_PREFIXES = [
   '.claude/',
   '.config/',
@@ -273,7 +274,7 @@ export { GENERATED_PATTERNS, isBothTouched, isGenerated, isUnmerged }
 /**
  * The in-progress git operation ('rebase' | 'merge' | 'cherry-pick'), or
  * undefined when the tree is in a normal state. A rebase's dirty files are
- * intentional + fresh (land them), but the operation state is logged so the
+ * intentional + fresh, land them, but the operation state is logged so the
  * landing is never silent while git is mid-replay.
  */
 function inProgressOp(cwd: string): string | undefined {
@@ -297,11 +298,11 @@ function inProgressOp(cwd: string): string | undefined {
   return undefined
 }
 
-function landGroup(
+async function landGroup(
   cwd: string,
   group: CommitGroup,
   aiSummary?: string | undefined,
-): boolean {
+): Promise<boolean> {
   const message = commitMessage(group, aiSummary)
   // `-A -- <paths>` so a DELETED path stages as a deletion — plain `git add`
   // errors "pathspec did not match" on removed files (cascade tombstones,
@@ -311,15 +312,12 @@ function landGroup(
   // pathspec and the add errors spuriously, while `git commit -o` below
   // commits the named paths' working-tree state without needing the index —
   // so a real problem surfaces as the commit failure, not the add.
-  git(cwd, ['add', '-A', '--', ...group.paths])
-  const committed = git(cwd, [
-    'commit',
-    '-o',
-    ...group.paths,
-    '-S',
-    '-m',
-    message,
-  ])
+  // Both ops retry on index.lock contention: the repo mutex serializes
+  // fleet landers, but a human's tool can still hold the index briefly.
+  await retryGit(() => git(cwd, ['add', '-A', '--', ...group.paths]))
+  const committed = await retryGit(() =>
+    git(cwd, ['commit', '-o', ...group.paths, '-S', '-m', message]),
+  )
   if (!committed.ok) {
     logger.fail(`git commit failed for ${group.scope}: ${committed.out.trim()}`)
     return false
@@ -331,7 +329,7 @@ function landGroup(
 export async function main(cwd: string = REPO_ROOT): Promise<number> {
   const argv = process.argv.slice(2)
   const doCommit = argv.includes('--commit')
-  // Non-flag args restrict landing to EXACTLY this set (repo-relative paths).
+  // Non-flag args restrict landing to EXACTLY this set, repo-relative paths.
   // The auto-land Stop-hook passes only the paths THIS session authored, so a
   // foreign staged feature in the shared index is never swept into a commit.
   // No paths given → land the whole dirty tree (manual `land-work` use).
@@ -419,16 +417,32 @@ export async function main(cwd: string = REPO_ROOT): Promise<number> {
   }
   // Mark the run so the AI summarizer's headless child — which inherits this
   // env and loads this repo's Stop hook — never re-triggers auto-land on the
-  // still-dirty tree (auto-land-on-stop skips when this is set).
+  // still-dirty tree, auto-land-on-stop skips when this is set.
   process.env['SOCKET_LAND_WORK_ACTIVE'] = '1'
   // Deterministic subject + file digest always stand; the floor-tier AI summary
   // is pure enrichment the land never waits on (empty map = digest-only body).
   const summaries = await summarizeGroups(cwd, groups)
+  // Serialize concurrent landers (two sessions' Stop hooks firing together
+  // race the shared .git/index). Failing to acquire is LOUD and non-fatal:
+  // the other lander is committing the same repo; this session's work lands
+  // on its next turn end.
+  const release = await acquireGitMutex(cwd)
+  if (!release) {
+    logger.warn(
+      'land-work: another session holds the landing mutex for this repo — ' +
+        'skipped this pass; the work stays dirty and lands on the next turn end.',
+    )
+    return 1
+  }
   let failed = 0
-  for (const g of groups) {
-    if (!landGroup(cwd, g, summaries.get(g.scope))) {
-      failed += 1
+  try {
+    for (const g of groups) {
+      if (!(await landGroup(cwd, g, summaries.get(g.scope)))) {
+        failed += 1
+      }
     }
+  } finally {
+    await release()
   }
   return failed === 0 ? 0 : 1
 }

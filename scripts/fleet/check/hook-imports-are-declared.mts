@@ -19,13 +19,21 @@
  *   or a relative (`./`, `../`) specifier names no installed package and is
  *   skipped. A subpath import (e.g.
  *   `@socketsecurity/lib-stable/logger/default`) resolves to its package name
- *   (`@socketsecurity/lib-stable`) before the declared-deps check. Fails loud
- *   (What / Where / Saw / Wanted / Fix) listing every undeclared specifier +
- *   the importing file — never a silent skip. Usage: node
+ *   (`@socketsecurity/lib-stable`) before the declared-deps check.
+ *   A second pass covers the tier the root manifest cannot see: a hook dir
+ *   holding its own `package.json` is a pnpm workspace package, so pnpm links
+ *   into it only what THAT manifest declares. An import the hook manifest omits
+ *   resolves by hoisting luck alone — green until the next prune/relink, then
+ *   every hook event dies at once with `ERR_MODULE_NOT_FOUND: Cannot find
+ *   package '@socketsecurity/lib-stable'`. Hook dirs without a manifest
+ *   (`_dispatch`, `_dist`, `_shared`) resolve against the root and are covered
+ *   by the first pass alone.
+ *   Fails loud (What / Where / Saw / Wanted / Fix) listing every undeclared
+ *   specifier + the importing file — never a silent skip. Usage: node
  *   scripts/fleet/check/hook-imports-are-declared.mts [--quiet]
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
@@ -37,16 +45,25 @@ import { isMainModule } from '../_shared/is-main-module.mts'
 const logger = getDefaultLogger()
 
 // Hook trees to scan, relative to REPO_ROOT. `.claude/hooks/repo` is
-// repo-specific (not every fleet member carries one); listMtsFiles returns
+// repo-specific, not every fleet member carries one; listMtsFiles returns
 // `[]` for a missing directory, so an absent tree is simply a no-op — never an
 // error.
 export const HOOK_TREES: readonly string[] = [
   path.join('.claude', 'hooks', 'fleet'),
   path.join('.claude', 'hooks', 'repo'),
+  path.join('template', 'base', '.claude', 'hooks', 'fleet'),
+  path.join('template', 'base', '.claude', 'hooks', 'repo'),
 ]
 
 export interface UndeclaredImport {
   readonly file: string
+  readonly packageName: string
+  readonly specifier: string
+}
+
+export interface UndeclaredWorkspaceImport {
+  readonly file: string
+  readonly manifest: string
   readonly packageName: string
   readonly specifier: string
 }
@@ -131,7 +148,7 @@ export function extractImportSpecifiers(content: string): string[] {
 
 /**
  * Resolve a bare import specifier to the package name that must be declared
- * in `package.json`: `@scope/name` for a scoped package (subpath dropped), or
+ * in `package.json`: `@scope/name` for a scoped package, subpath dropped, or
  * the first path segment for an unscoped package. Returns `undefined` for a
  * relative (`.`/`..`) or `node:` builtin specifier — neither names an
  * installed package.
@@ -156,7 +173,7 @@ export function packageNameFromSpecifier(
 /**
  * Read `dependencies` + `devDependencies` keys off `packageJsonPath` into one
  * declared-names set. A missing/unparseable `package.json` yields an empty
- * set — fail loud downstream (every import reads as undeclared), which
+ * set — fail loud downstream, every import reads as undeclared, which
  * correctly signals the manifest itself is broken rather than silently
  * passing.
  */
@@ -207,6 +224,91 @@ export function findUndeclaredImports(
       a.packageName.localeCompare(b.packageName),
   )
   return findings
+}
+
+/**
+ * The manifest that actually governs `fileAbs`'s bare-specifier resolution:
+ * the nearest `package.json` at or above the file's directory, bounded by
+ * `repoRoot`. A hook dir carrying its own `package.json` is a pnpm workspace
+ * package, so that manifest — NOT the repo root one — decides what gets linked
+ * into its `node_modules`. A hook dir without one (`_dispatch`, `_dist`,
+ * `_shared`) resolves against the root manifest.
+ */
+export function governingManifestPath(
+  fileAbs: string,
+  repoRoot: string,
+): string {
+  const rootManifest = path.join(repoRoot, 'package.json')
+  let dir = path.dirname(fileAbs)
+  while (
+    dir !== repoRoot &&
+    dir.startsWith(repoRoot) &&
+    dir !== path.dirname(dir)
+  ) {
+    const candidate = path.join(dir, 'package.json')
+    if (existsSync(candidate)) {
+      return candidate
+    }
+    dir = path.dirname(dir)
+  }
+  return rootManifest
+}
+
+/**
+ * Diagnose every hook file whose GOVERNING manifest (its own hook
+ * `package.json`) omits a package it imports. This is the tier the
+ * root-manifest pass cannot see: pnpm's isolated `node_modules` links into a
+ * workspace package only what that package's own manifest declares, so an
+ * import the hook manifest omits resolves by hoisting luck alone — green until
+ * the next prune/relink, then every hook event dies at once with
+ * `ERR_MODULE_NOT_FOUND`. Files governed by the root manifest are skipped here;
+ * `findUndeclaredImports` already covers them. Deduplicated by (manifest,
+ * packageName) so one missing entry is reported once, not once per import
+ * site.
+ */
+export function findUndeclaredWorkspaceImports(
+  files: ReadonlyMap<string, string>,
+  repoRoot: string,
+): UndeclaredWorkspaceImport[] {
+  const rootManifest = path.join(repoRoot, 'package.json')
+  const declaredByManifest = new Map<string, Set<string>>()
+  const findings: UndeclaredWorkspaceImport[] = []
+  const seen = new Set<string>()
+  for (const [file, content] of files) {
+    const manifestPath = governingManifestPath(
+      path.join(repoRoot, file),
+      repoRoot,
+    )
+    if (manifestPath === rootManifest) {
+      continue
+    }
+    let declared = declaredByManifest.get(manifestPath)
+    if (!declared) {
+      declared = readDeclaredPackageNames(manifestPath)
+      declaredByManifest.set(manifestPath, declared)
+    }
+    const manifest = path.relative(repoRoot, manifestPath)
+    const specifiers = extractImportSpecifiers(content)
+    for (let i = 0, { length } = specifiers; i < length; i += 1) {
+      const specifier = specifiers[i]!
+      const packageName = packageNameFromSpecifier(specifier)
+      if (packageName === undefined || declared.has(packageName)) {
+        continue
+      }
+      const key = `${manifest} ${packageName}`
+      if (seen.has(key)) {
+        continue
+      }
+      seen.add(key)
+      findings.push({ file, manifest, packageName, specifier })
+    }
+  }
+  return findings.toSorted(function byManifestThenPackage(a, b) {
+    return (
+      a.manifest.localeCompare(b.manifest) ||
+      a.packageName.localeCompare(b.packageName)
+    )
+  })
 }
 
 /**
@@ -273,6 +375,47 @@ function main(): void {
     )
     logger.error(
       '          catalog entry exists — see scripts/repo/sync-scaffolding/manifest/catalog.mts)',
+    )
+    logger.error('          and run `pnpm i`.')
+    process.exitCode = 1
+    return
+  }
+
+  const workspaceFindings = findUndeclaredWorkspaceImports(files, REPO_ROOT)
+  if (workspaceFindings.length > 0) {
+    logger.fail(
+      '[hook-imports-are-declared] a hook imports a package its OWN package.json does not declare.',
+    )
+    logger.error('')
+    logger.error(
+      '  What:   a hook dir holding a package.json is its own pnpm workspace package,',
+    )
+    logger.error(
+      '          so pnpm links into it only what THAT manifest declares. An undeclared',
+    )
+    logger.error(
+      '          import resolves by hoisting luck and dies with ERR_MODULE_NOT_FOUND on',
+    )
+    logger.error(
+      '          the next prune/relink, silencing every hook event at once.',
+    )
+    logger.error('')
+    for (let i = 0, { length } = workspaceFindings; i < length; i += 1) {
+      const f = workspaceFindings[i]!
+      logger.error(`  Where:  ${f.file}`)
+      logger.error(
+        `  Saw:    import '${f.specifier}' → package "${f.packageName}", absent from ${f.manifest}`,
+      )
+      logger.error(
+        `  Wanted: "${f.packageName}": "catalog:" in ${f.manifest} dependencies`,
+      )
+      logger.error('')
+    }
+    logger.error(
+      '  Fix:    add each missing package to the hook manifest under template/base/ first,',
+    )
+    logger.error(
+      '          then cascade (node scripts/repo/sync-scaffolding/cli.mts --target . --fix)',
     )
     logger.error('          and run `pnpm i`.')
     process.exitCode = 1

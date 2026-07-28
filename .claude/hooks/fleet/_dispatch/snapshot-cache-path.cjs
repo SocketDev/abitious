@@ -46,7 +46,7 @@ function versionTag() {
 // to index.cjs (correct, ~13-16ms slower), the fast path never survived a temp
 // sweep. node_modules/.cache persists until an explicit node_modules rebuild, at
 // which point the next hook-bundle build regenerates the blob; a missing blob is
-// never an error (launcher fail-opens, builder recreates). Build-time only — the
+// never an error, launcher fail-opens, builder recreates. Build-time only — the
 // launcher reads the frozen snapshot-blob.path sidecar, never this module.
 //
 // Walk to the workspace marker instead of assuming this file has a fixed depth:
@@ -83,12 +83,60 @@ function snapshotCacheDir() {
 }
 
 // Per-blob filename is content-addressed on the entry's source hash, so editing
-// a guard yields a different blob (the old one orphaned, reaped when tmpdir
-// clears) and a stale source can NEVER boot old logic: a miss falls open to the
-// non-snapshot path. This is the fail-open-correct half of "Node only validates
-// version, not payload" — content keying is ours to own.
+// a guard yields a different blob and a stale source can NEVER boot old logic: a
+// miss falls open to the non-snapshot path. This is the fail-open-correct half
+// of "Node only validates version, not payload" — content keying is ours to own.
+// A bundle edit orphans the prior blob; node_modules/.cache is NOT OS-reaped, so
+// pruneStaleBlobs() clears those orphans keep-active-only after each build.
 function blobPath(entryId, sourceHash) {
   return path.join(snapshotCacheDir(), `${entryId}-${sourceHash}.blob`)
 }
 
-module.exports = { v8Tag, versionTag, findRepoRoot, snapshotCacheDir, blobPath }
+// Delete stale sibling blobs after a successful build, keeping only the one just
+// built. A checkout has exactly ONE active blob at a time — the launcher reads
+// the frozen snapshot-blob.path sidecar, which names a single blob — so every
+// other content-hashed blob of the same entry is an orphan from a prior bundle
+// edit. node_modules/.cache is NOT OS-reaped, so without this the orphans grow
+// unbounded (~16 MB each). Scoped strictly to keepBlobPath's own versionTag dir
+// and entry prefix (never another node/arch/V8 dir, never another entry's active
+// blob). Fail-open-safe: every filesystem call is wrapped so a prune failure can
+// never break the build or an in-flight execv — an orphan has a different content
+// hash than the active blob and is never the mmap'd blob of a running snapshot,
+// so removing it cannot affect a live boot.
+function pruneStaleBlobs(keepBlobPath) {
+  try {
+    const dir = path.dirname(keepBlobPath)
+    const keepName = path.basename(keepBlobPath)
+    const dashIndex = keepName.lastIndexOf('-')
+    const entryPrefix =
+      dashIndex === -1 ? keepName : keepName.slice(0, dashIndex + 1)
+    const names = fs.readdirSync(dir)
+    for (let i = 0, { length } = names; i < length; i += 1) {
+      const name = names[i]
+      if (
+        name !== keepName &&
+        name.endsWith('.blob') &&
+        name.startsWith(entryPrefix)
+      ) {
+        try {
+          // oxlint-disable-next-line socket/prefer-safe-delete -- dep-0 hook-dispatch .cjs: cannot import lib safeDelete; unlink is fail-open-wrapped, prune of an orphan blob
+          fs.unlinkSync(path.join(dir, name))
+        } catch {
+          // Fail-open: an undeletable orphan is harmless — the launcher only
+          // ever loads keepBlobPath.
+        }
+      }
+    }
+  } catch {
+    // Fail-open: a missing/unreadable cache dir means there is nothing to prune.
+  }
+}
+
+module.exports = {
+  v8Tag,
+  versionTag,
+  findRepoRoot,
+  snapshotCacheDir,
+  blobPath,
+  pruneStaleBlobs,
+}

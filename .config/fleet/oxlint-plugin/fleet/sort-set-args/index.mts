@@ -4,7 +4,7 @@
  *   order: case-insensitive + numeric-aware). Order doesn't affect Set
  *   semantics but keeps diff churn low and reading easier. Autofix: rewrites
  *   the array literal in sorted order. Only fires when every element is a
- *   Literal (string or number) — mixed-type arrays or arrays containing
+ *   Literal, string or number — mixed-type arrays or arrays containing
  *   identifiers/expressions get reported but not auto-fixed (sorting computed
  *   values would change behavior).
  */
@@ -18,7 +18,7 @@ const SET_NAMES = new Set(['SafeSet', 'Set'])
 
 function isSortableElement(node: AstNode) {
   return (
-    node !== null &&
+    node !== undefined &&
     node.type === 'Literal' &&
     (typeof node.value === 'string' || typeof node.value === 'number')
   )
@@ -77,7 +77,9 @@ const rule = {
         // from spreads dedups regardless of order, so element order carries
         // no meaning — skip rather than nag for an impossible manual sort.
         if (
-          els.some((e: AstNode) => e !== null && e.type === 'SpreadElement')
+          els.some(
+            (e: AstNode) => e !== undefined && e.type === 'SpreadElement',
+          )
         ) {
           return
         }

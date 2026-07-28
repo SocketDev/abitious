@@ -1,6 +1,6 @@
 /**
  * @file Generate a package.json `exports` map from a publishable package's
- *   public file surface. Opt-in per package (a package supplies a config); the
+ *   public file surface. Opt-in per package, a package supplies a config; the
  *   guiding question is "when we publish to npm, what do we want a consumer to
  *   import?". One generator handles both dist-based packages (output under
  *   `dist/`) and packages whose published files sit at the package root.
@@ -16,7 +16,7 @@
  *   `scripts/fleet/check/public-files-are-exported.mts`.
  */
 
-import { promises as fs } from 'node:fs'
+import { promises as fs, readFileSync } from 'node:fs'
 import { builtinModules } from 'node:module'
 import path from 'node:path'
 import process from 'node:process'
@@ -36,19 +36,24 @@ import { isMainModule } from '../_shared/is-main-module.mts'
 
 const logger = getDefaultLogger()
 
-// A single export condition target (a file path) keyed by condition name.
+// A single export condition target, a file path, keyed by condition name.
 // `source` (dev: resolve to TS src for coverage), `browser`, `types`, and
 // `default` are the conditions the engine emits. Order is significant in the
 // emitted object — most-specific first — so consumers/bundlers match correctly.
 export interface ExportConditions {
   source?: string | undefined
-  browser?: ExportConditions | undefined
+  // `browser` takes one of two shapes. A nested conditions object is a
+  // self-routing browser-safe leaf — browser resolves to the SAME file's
+  // types/default. A bare string is a browser BUILD override — browser resolves
+  // to a `.browser.<ext>` sibling of the `default` target, ordered after `types`
+  // so `types` still wins for type resolution.
+  browser?: ExportConditions | string | undefined
   types?: string | undefined
   default?: string | undefined
 }
 
 // One alias entry: a public subpath that re-points at the canonical target's
-// value (no source file behind it). Used for fleet-compat barrels.
+// value, no source file behind it. Used for fleet-compat barrels.
 // When `browserTo` is set, the alias additionally splices a `browser` condition
 // pointing at THAT leaf's value — the `./logger` (Node) → `./logger/browser`
 // (browser-impl) pattern, where the browser build wants a different file.
@@ -67,21 +72,29 @@ export interface ExportsConfig {
   readonly nodeRange?: string | undefined
   // Named after the package.json fields they produce.
   //
-  // `files` — globs (relative to the package) of candidate published files;
+  // `files` — globs, relative to the package, of candidate published files;
   // produces both the export surface and the `files[]` allowlist. Defaults to
   // every JS/JSON/d.ts under outDir.
   readonly files?: readonly string[] | undefined
   // `ignore` — exclusion globs on top of the built-in privacy taxonomy.
   readonly ignore?: readonly string[] | undefined
-  // `browser` — glob patterns (matched against the post-strip export path)
-  // whose leaves are browser-safe; each gets a self-routing `browser` condition
-  // in `exports`. Covers a subtree (`./arrays/**`) or a browser-impl leaf
-  // (`**/browser`). Declaring ANY browser-safe surface ALSO triggers the
+  // `browser` — glob patterns, matched against the post-strip export path, that
+  // declare sibling-LESS leaves browser-safe; each match gets a self-routing
+  // `browser` condition — browser resolves to the SAME file. Covers a subtree
+  // (`./arrays/**`) or a browser-impl leaf (`**/browser`). This is the glob's
+  // ONLY role: a browser OVERRIDE — an entry with a `.browser.<ext>` build
+  // sibling next to its `default` target, `dist/index.browser.js` beside
+  // `dist/index.js` — is detected automatically and needs NO glob; that entry
+  // gets a `browser` condition pointing at the sibling (ordered after `types`)
+  // and the sibling is consumed rather than emitted as its own `./index.browser`
+  // entry. Declaring ANY browser glob ALSO triggers the
   // top-level package.json `browser` field: the engine infers it, stubbing
   // every Node builtin (from `node:module`'s `builtinModules`) to `false` —
   // bare key + `node:`-prefixed twin — so a downstream browser bundle gets an
   // empty stub instead of a hard build error on a `node:*` import reachable
-  // from a browser-safe entry. No explicit builtin list: the engine owns it.
+  // from a browser-safe entry. No explicit builtin list: the engine owns it. An
+  // auto sibling override alone does NOT trigger the stubbing — it declares one
+  // specific browser build, not a browser-safe subtree.
   readonly browser?: readonly string[] | undefined
   // Re-pointer aliases (barrels). Optional `browserTo` adds a browser-condition
   // override (./logger → ./logger/browser).
@@ -95,7 +108,7 @@ export interface ExportsConfig {
 
 // Built-in privacy taxonomy: a path segment of `external`, or any underscore-
 // prefixed leaf/dir, is private regardless of dist. Configurable per package
-// via ExportsConfig.privateSegments (adds exact segment names). The
+// via ExportsConfig.privateSegments, adds exact segment names. The
 // `_`-prefix rule is always on. Matched against a normalized (`/`) path.
 const DEFAULT_PRIVATE_PATH_RE = /(?:\/|^)(?:_[^/]*|external)(?:$|\/)/
 
@@ -108,7 +121,7 @@ export function privatePathMatcher(
   // Sort the configured segments (ASCII) so the alternation is stable +
   // satisfies sort-regex-alternations, then OR them with the defaults.
   const extra = [...privateSegments]
-    // oxlint-disable-next-line unicorn/no-array-sort -- the spread already copies `privateSegments` (no shared mutation); .toSorted() would trip socket/no-runtime-features-below-engine-floor in cascaded Node-18 repos.
+    // oxlint-disable-next-line unicorn/no-array-sort -- the spread already copies `privateSegments`, no shared mutation; .toSorted() would trip socket/no-runtime-features-below-engine-floor in cascaded Node-18 repos.
     .sort()
     .map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('|')
@@ -263,35 +276,98 @@ export function matchesGlob(target: string, pattern: string): boolean {
   return re.test(cleanTarget)
 }
 
-// Splice a `browser` condition (pointing at the same target) BEFORE the other
-// conditions for browser-safe leaves — signals the entry is browser-safe. A
-// leaf qualifies when its export path matches any `browser` glob.
+// The `.browser.<ext>` build sibling of a runtime target: `./dist/index.js` →
+// `./dist/index.browser.js`. Returns undefined when the target is not runtime
+// JavaScript. General over the runtime extension (`.js` / `.mjs` / `.cjs`).
+export function browserSiblingTarget(target: string): string | undefined {
+  const match = /\.[cm]?js$/.exec(target)
+  if (!match) {
+    return undefined
+  }
+  const ext = match[0]
+  return `${target.slice(0, -ext.length)}.browser${ext}`
+}
+
+// The export path whose runtime target is `siblingTarget`, so a matched entry's
+// `.browser` build sibling can be consumed as an override instead of standing
+// alone. Undefined when no entry resolves that file.
+function browserSiblingEntry(
+  map: Record<string, ExportConditions | string>,
+  siblingTarget: string,
+): string | undefined {
+  for (const { 0: key, 1: value } of Object.entries(map)) {
+    const target = typeof value === 'string' ? value : value.default
+    if (target === siblingTarget) {
+      return key
+    }
+  }
+  return undefined
+}
+
+// Add a `browser` condition to two kinds of entry:
+//   - OVERRIDE (automatic, needs NO glob): an entry whose `default` target has a
+//     `.browser.<ext>` build sibling. The `browser` condition points at that
+//     sibling and the sibling's own entry is consumed, never its own export.
+//     Order: source?, types, browser, default — `types` precedes every runtime
+//     condition so nodenext resolves types before the browser build. A sibling
+//     override ALWAYS wins, whether or not a `browser` glob is configured.
+//   - SELF-ROUTE (glob-driven): a sibling-LESS entry whose export path matches a
+//     `browser` glob. The `browser` condition points at the SAME file, spliced
+//     most-specific first (before `types`) as a nested conditions object, to
+//     signal the entry is browser-safe.
+// An entry with neither a build sibling nor a `browser` glob match is untouched.
 export function applyBrowserConditions(
   map: Record<string, ExportConditions | string>,
   config: ExportsConfig,
 ): void {
   const browser = config.browser ?? []
-  if (!browser.length) {
-    return
-  }
+  // Plan before mutating so a build sibling consumed as an override is neither
+  // self-routed nor left as its own entry, whatever the map iteration order.
+  const overrides = new Map<string, string>()
+  const selfRoutes = new Set<string>()
+  const consumed = new Set<string>()
   for (const { 0: exportPath, 1: value } of Object.entries(map)) {
-    if (typeof value !== 'object') {
+    if (typeof value !== 'object' || value.browser) {
       continue
     }
-    if (!browser.some(g => matchesGlob(exportPath, g))) {
-      continue
+    const siblingTarget = value.default
+      ? browserSiblingTarget(value.default)
+      : undefined
+    const siblingPath = siblingTarget
+      ? browserSiblingEntry(map, siblingTarget)
+      : undefined
+    if (
+      siblingTarget !== undefined &&
+      siblingPath !== undefined &&
+      siblingPath !== exportPath
+    ) {
+      // Auto override — a build sibling exists; no glob required.
+      overrides.set(exportPath, siblingTarget)
+      consumed.add(siblingPath)
+    } else if (browser.some(g => matchesGlob(exportPath, g))) {
+      // No sibling, but a glob marks this leaf browser-safe → self-route.
+      selfRoutes.add(exportPath)
     }
-    if (value.browser) {
-      continue
-    }
-    const { source, types, default: def } = value
-    const next: ExportConditions = {
+  }
+  for (const exportPath of consumed) {
+    delete map[exportPath]
+    overrides.delete(exportPath)
+    selfRoutes.delete(exportPath)
+  }
+  for (const { 0: exportPath, 1: siblingTarget } of overrides) {
+    const value = map[exportPath] as ExportConditions
+    const { default: def, source, types } = value
+    map[exportPath] = { source, types, browser: siblingTarget, default: def }
+  }
+  for (const exportPath of selfRoutes) {
+    const value = map[exportPath] as ExportConditions
+    const { default: def, source, types } = value
+    map[exportPath] = {
       source,
       browser: { types, default: def },
       types,
       default: def,
     }
-    map[exportPath] = next
   }
 }
 
@@ -337,6 +413,63 @@ export function applyAliases(
 // still lists; `buildBrowserField` stubs those bare-only (no `node:` twin,
 // since they have no real `node:`-prefixed form).
 export const NODE_BUILTINS: readonly string[] = builtinModules
+
+/**
+ * The block message when the running Node's MAJOR differs from the
+ * `.node-version` pin, or undefined when they agree (or the pin is
+ * unreadable — an absent pin is not a mismatch).
+ *
+ * `buildBrowserField` reads the RUNNING Node's `builtinModules`, so the
+ * generated map is a function of whoever ran the build. Node 24 still reports
+ * the legacy `_stream_*` aliases that 26 dropped, so a build off-pin writes six
+ * stub keys CI never produces — and the committed manifest then disagrees with
+ * the published tarball. Pre-approve verify catches it at the very end of a
+ * release (staged vs local pack diverge on `package.json`); this catches it at
+ * the write, which is where it is cheap to fix.
+ *
+ * Gated on MAJOR: builtins are added and removed across majors, while a patch
+ * bump on the pin is routine and must not block a local regen.
+ */
+export function nodePinMismatchMessage(
+  runningVersion: string,
+  pinnedVersion: string | undefined,
+): string | undefined {
+  if (!pinnedVersion) {
+    return undefined
+  }
+  // Numeric majors only. `.node-version` also accepts aliases (`lts/*`,
+  // `stable`) that name no comparable major — those are not a mismatch, they
+  // are simply not checkable.
+  const majorOf = (v: string): number | undefined => {
+    const match = /^v?(\d+)\./.exec(v.trim())
+    return match ? Number(match[1]) : undefined
+  }
+  const running = majorOf(runningVersion)
+  const pinned = majorOf(pinnedVersion)
+  if (running === undefined || pinned === undefined || running === pinned) {
+    return undefined
+  }
+  return (
+    'gen/package-exports: refusing to write a runtime-derived browser map off-pin.\n' +
+    `  What:  the browser field stubs the RUNNING Node's builtinModules, so it changes with the Node that runs this generator.\n` +
+    `  Where: .node-version pins ${pinnedVersion}; this process is ${runningVersion}.\n` +
+    `  Saw:   Node major ${running}; wanted major ${pinned}, the version CI builds and publishes with.\n` +
+    `  Fix:   re-run on the pin (fnm use ${pinnedVersion} / nvm use ${pinnedVersion}), then regenerate.`
+  )
+}
+
+/**
+ * The `.node-version` pin at `repoRoot`, or undefined when it is absent or
+ * unreadable — a repo without the pin file simply has nothing to check.
+ */
+export function readNodeVersionPin(repoRoot: string): string | undefined {
+  try {
+    const raw = readFileSync(path.join(repoRoot, '.node-version'), 'utf8')
+    return raw.trim() || undefined
+  } catch {
+    return undefined
+  }
+}
 
 // Build the top-level package.json `browser` field (each entry → false =
 // empty-module stub). Three name shapes from `builtinModules`:
@@ -415,7 +548,7 @@ async function runGenerator(): Promise<void> {
   // A package opts in by shipping `scripts/repo/package-exports.config.mts`
   // (resolved relative to REPO_ROOT, not process.cwd() — scripts may be invoked
   // from any directory) with a default export of `{ config, packageDir? }`.
-  // Absent config = this package does not generate exports (the no-op opt-out).
+  // Absent config = this package does not generate exports, the no-op opt-out.
   const configPath = path.join(
     REPO_ROOT,
     'scripts/repo/package-exports.config.mts',
@@ -472,6 +605,13 @@ async function runGenerator(): Promise<void> {
   // `_stream_*` stubs or `node:node:` doubles). A package needing a hand-pinned
   // browser shim should express it as an exports `browser` condition, not here.
   if (config.browser?.length) {
+    const mismatch = nodePinMismatchMessage(
+      process.version,
+      readNodeVersionPin(REPO_ROOT),
+    )
+    if (mismatch) {
+      throw new Error(mismatch)
+    }
     pkgJson['browser'] = buildBrowserField()
   }
   if (config.nodeRange) {
