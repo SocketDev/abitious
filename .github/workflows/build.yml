@@ -137,7 +137,7 @@ jobs:
           node-version: 24
       # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-07-12); keep the
       # `toolchain:` here in lockstep with it. `targets:` adds the matrix cross target.
-      - uses: dtolnay/rust-toolchain@efcb852328a9f50117170cc43094fb6f09eaf1ae # nightly
+      - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
         with:
           toolchain: nightly-2026-07-12
           targets: ${{ matrix.rust }}

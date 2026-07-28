@@ -71,7 +71,7 @@ jobs:
       # keep `toolchain:` here in lockstep with it + build.yml. The nightly cargo
       # provides `cargo publish --workspace` (dependency-ordered, inter-crate wait).
       - name: Rust toolchain (matches rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@efcb852328a9f50117170cc43094fb6f09eaf1ae # nightly
+        uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
         with:
           toolchain: nightly-2026-07-12
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
