@@ -32,6 +32,7 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 ] }
 
 [dependencies]
+decmpfs = { workspace = true }
 sha2 = { workspace = true }
 zstd = { workspace = true }
 
@@ -58,3 +59,8 @@ apple-codesign = { version = "0.29", default-features = false, optional = true }
 # quickcheck. Test-only, so it never touches the shipped reader/stub dep tree.
 [dev-dependencies]
 proptest = "1"
+
+# `getrusage` for the peak-RSS reading in tests/compression_probes.rs. Already a
+# runtime dependency on unix, so the probe adds nothing to the tree.
+[target.'cfg(unix)'.dev-dependencies]
+libc = { workspace = true }

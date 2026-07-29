@@ -26,22 +26,25 @@
 //! producer half decmpfs never had (`build_section_payload`) plus a byte-faithful
 //! copy of the reader so both live in one crate.
 //!
-//! ## The FS-compression engine (`fscompress`)
+//! ## The FS-compression engine
 //!
-//! Alongside the section reader/writer, this crate ports the `decmpfs` crate's
-//! transparent filesystem-compression engine (macOS APFS decmpfs, Linux btrfs,
-//! Windows NTFS). Its PM-facing surface is re-exported at the crate root and mirrors
-//! `decmpfs::` 1:1 ([`compress_bytes`], [`compress_file`], [`probe`], [`stat`],
-//! [`Outcome`], [`Gate`], …), so a decmpfs-aware package manager can depend on this
-//! single crate for BOTH the distribution SECTION format AND install-time kernel
-//! compression. [`install_hybrid`] is the abitious install bridge that ties the two
+//! Transparent filesystem compression (macOS APFS decmpfs, Linux btrfs, Windows
+//! NTFS) comes from the [`decmpfs`] crate, which owns that engine. The store-write
+//! surface a package manager needs is re-exported at this crate's root
+//! ([`compress_bytes`], [`probe`], [`stat`], [`Outcome`], [`Gate`], …), so a
+//! decmpfs-aware package manager gets BOTH the distribution SECTION format AND
+//! install-time kernel compression from one dependency, at one pinned engine
+//! version. [`install_hybrid`] is the abitious install bridge that ties the two
 //! halves together: unwrap a downloaded hybrid's raw addon and land it as a
-//! kernel-compressed store entry in one pass.
+//! kernel-compressed store entry in one pass. [`OutcomeExt::describe`] renders the
+//! result as a receipt line.
+//!
+//! The in-place [`decmpfs::compress_file`] is deliberately NOT re-exported flat —
+//! see the note on the re-export block below.
 
 // The deny keeps non-test code free of the obvious panic sources; all slice indexing
-// in the section reader is already length-guarded, and the fscompress engine is
-// panic-free by contract. `build_section_payload` carries a single justified
-// `#[allow]` for its infallible in-memory zstd encode.
+// in the section reader is already length-guarded. `build_section_payload` carries a
+// single justified `#[allow]` for its infallible in-memory zstd encode.
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 // On a nightly `cargo llvm-cov` run, cargo-llvm-cov sets `coverage_nightly`,
 // enabling `#[coverage(off)]` so test-only code is dropped from the report and it
@@ -50,17 +53,33 @@
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
 mod inject;
+mod outcome;
 pub mod selfextract;
 
-pub mod fscompress;
-
 pub use inject::{inject_elf, inject_macho, inject_pe, inject_pressed_data, resign, InjectError};
+pub use outcome::{skip_reason_text, unsupported_reason_text, OutcomeExt};
 
-// The FS-compression engine's PM-facing surface, re-exported at the crate root to
-// mirror `decmpfs::` 1:1 so a decmpfs-aware package manager can swap the dependency.
-pub use fscompress::{
-  compress_bytes, compress_file, probe, stat, Error, Gate, GateParseError, Outcome, SizePredicate,
-  SkipReason, Stat, Support, UnsupportedReason, DEFAULT_GLOB,
+// The engine itself, re-exported under its own name. Anything not named flat below
+// is reached as `abitious_decmpfs::decmpfs::…`, which keeps upstream semantics
+// explicit at the call site and spares a caller a second dependency that could skew
+// against the version this crate pins.
+pub use decmpfs;
+
+// The store-write surface, flattened to the crate root: what a package manager
+// needs to land a downloaded addon as a kernel-compressed store entry.
+//
+// `compress_file` is intentionally absent. It compresses an existing file IN PLACE,
+// which is not the store-write path abitious exists to serve, and upstream verifies
+// that path by comparing only a 4-byte magic prefix before/after — where
+// `compress_bytes` (and so [`install_hybrid`]) compares the FULL content read back
+// through the kernel. Flattening a weaker in-place check next to these names would
+// imply a guarantee this crate does not make, and re-implementing the strong check
+// here would fork the safety layer and let the upstream gap sit unfixed. A caller
+// that genuinely wants in-place compression reaches `decmpfs::compress_file`
+// directly, where the semantics are upstream's and read as upstream's.
+pub use decmpfs::{
+  compress_bytes, probe, stat, Error, Gate, GateParseError, Outcome, SizePredicate, SkipReason,
+  Stat, Support, UnsupportedReason, DEFAULT_GLOB,
 };
 
 use std::path::Path;
@@ -81,7 +100,7 @@ use sha2::{Digest, Sha256, Sha512};
 /// published hybrid and lands a kernel-compressed, natively-loadable store entry that
 /// `dlopen` reads at near-native speed (the kernel decompresses transparently). The
 /// `gate` gates the write as a convenience; a caller that already selected the file can
-/// pass [`Gate::any()`](fscompress::Gate::any).
+/// pass [`Gate::any()`].
 pub fn install_hybrid(input: &[u8], dest: &Path, gate: &Gate) -> Result<Outcome, Error> {
   match unwrap_if_hybrid(input) {
     Some(raw) => compress_bytes(dest, &raw, gate),
@@ -149,7 +168,7 @@ impl Platform {
   }
 
   /// The pure host-dispatch policy, split from the `cfg!` evaluation so every platform arm
-  /// is unit-tested regardless of the host running the tests (mirrors [`crate::fscompress`]'s
+  /// is unit-tested regardless of the host running the tests (mirrors `decmpfs`'s
   /// `classify_fs` split and `triple::triple_of`; no single host can execute all arms).
   fn from_cfg(is_macos: bool, is_windows: bool) -> Self {
     if is_macos {
