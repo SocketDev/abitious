@@ -82,7 +82,7 @@ jobs:
         # Two OS FAMILIES, one runner each — this is deliberately NOT the full tier-1
         # / release target set. fmt + clippy + `cargo test --workspace` run on Linux
         # (ubuntu-latest) and macOS (macos-14), the two families whose cfg-selected
-        # fscompress backends differ. The arch variant (arm64) and libc variant (musl)
+        # compression backends differ. The arch variant (arm64) and libc variant (musl)
         # don't change the cfg-selected code path, so re-running the suite on them would
         # just double CI for no added signal; they — and Windows — are cross-COMPILED
         # (not unit-tested) in the release build (github-release.yml). Windows has its
@@ -109,7 +109,8 @@ jobs:
           key: ${{ matrix.os }}
       - name: rustfmt
         run: cargo fmt --all --check
-      # Per-OS clippy lints every cfg-selected backend (linux/macos/windows fscompress).
+      # Per-OS clippy lints every cfg-selected arm of the crate's own code (the
+      # unix / windows `selfextract` seams) plus the engine it pulls in.
       - name: clippy (all targets, deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test (workspace, locked, incl. the frozen interop tripwire)

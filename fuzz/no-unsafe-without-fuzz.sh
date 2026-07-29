@@ -12,11 +12,12 @@
 # pure safe Rust today (checked slice ops, `checked_add`) — the gate keeps it that
 # way: an `unsafe` added here without a `// FUZZ:` annotation fails the gate.
 #
-# OUT OF SCOPE — the crate's other `unsafe` lives in selfextract.rs and
-# fscompress/ (dlopen/dlsym/statfs/ioctl/getuid FFI syscalls). Those operate on
-# file descriptors, filesystem paths, and dynamic loading — NOT on a `&[u8]`
-# buffer — so a libFuzzer byte-input target cannot reach them; they are covered
-# by their own unit/integration tests, not this byte-fuzz gate. See
+# OUT OF SCOPE — the crate's other `unsafe` lives in selfextract.rs
+# (dladdr/dlopen/dlsym/getuid FFI syscalls). Those operate on file descriptors,
+# filesystem paths, and dynamic loading — NOT on a `&[u8]` buffer — so a
+# libFuzzer byte-input target cannot reach them; they are covered by their own
+# unit/integration tests, not this byte-fuzz gate. The FS-compression engine's
+# syscall `unsafe` belongs to the `decmpfs` dependency and is fuzzed there. See
 # docs/PRESSED-DATA-FORMAT.md.
 #
 # Exit 0 = clean (the current state: zero `unsafe` on the parse surface). Exit 1
