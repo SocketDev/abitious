@@ -139,7 +139,9 @@ jobs:
           # auditing it (no HTTP/async/openssl/codesign machinery). sha2 (+ its RustCrypto
           # digest stack) is the SHA-512 payload integrity + SHA-256 cache key; zstd
           # (+ zstd-safe/zstd-sys, bundled libzstd) is the one codec end to end; libc is
-          # the dladdr/getuid/dlopen runtime seam.
+          # the dladdr/getuid/dlopen runtime seam; decmpfs is the first-party SocketDev
+          # transparent-compression engine this crate re-exports (its only deps are libc
+          # and the cfg(windows)-gated windows-sys, so it adds nothing to this tree).
           cat > /tmp/allow.txt <<'EOF'
           abitious-decmpfs
           abitious-stub
@@ -147,6 +149,7 @@ jobs:
           cfg-if
           cpufeatures
           crypto-common
+          decmpfs
           digest
           generic-array
           libc
