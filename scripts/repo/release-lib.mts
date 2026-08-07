@@ -38,18 +38,18 @@ export function workspaceVersion(cargoToml: string): string | undefined {
 export function bumpWorkspaceCargo(cargoToml: string, version: string): string {
   return cargoToml
     .replace(
-      // (1) the `[workspace.package]` header plus everything up to its
-      // `version = "` key (captured to re-emit), (2) the old version between
-      // the quotes (replaced), (3) the closing quote (captured).
-      /(?<header>\[workspace\.package\][^[]*?\nversion\s*=\s*")[^"]+(?<close>")/,
-      (match, header, close) => `${header}${version}${close}`,
+      // The old version between the quotes of the `[workspace.package]`
+      // section's `version = "…"` key; the header and quotes sit in
+      // lookarounds so only the version itself is replaced.
+      /(?<=\[workspace\.package\][^[]*?\nversion\s*=\s*")[^"]+(?=")/,
+      () => version,
     )
     .replace(
-      // (1) an internal dep pin `path = "crates/…", version = "` (captured),
-      // (2) the old version between the quotes (replaced), (3) the closing
-      // quote (captured).
-      /(?<pin>path = "crates\/[^"]+", version = ")[^"]+(?<close>")/g,
-      (match, pin, close) => `${pin}${version}${close}`,
+      // The old version in each internal dep pin `path = "crates/…",
+      // version = "…"`; the pin prefix and closing quote sit in lookarounds
+      // so only the version itself is replaced.
+      /(?<=path = "crates\/[^"]+", version = ")[^"]+(?=")/g,
+      () => version,
     )
 }
 
