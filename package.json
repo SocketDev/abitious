@@ -24,7 +24,7 @@
     "lockstep:emit-mirror-globs": "node scripts/fleet/lockstep-emit-mirror-globs.mts",
     "lockstep:emit-schema": "node scripts/fleet/lockstep-emit-schema.mts",
     "lint": "node scripts/fleet/lint.mts",
-    "prepare": "node scripts/fleet/install-git-hooks.mts && node scripts/fleet/prepare.mts",
+    "prepare": "node scripts/repo/bootstrap/prepare.mts && node scripts/fleet/install-git-hooks.mts && node scripts/fleet/prepare.mts",
     "security": "node scripts/fleet/security.mts",
     "setup-security-tools": "node .claude/hooks/fleet/setup-security-tools/install.mts",
     "sync-oxlint-rules": "node scripts/fleet/sync-oxlint-rules.mts",
