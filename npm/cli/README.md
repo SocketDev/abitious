@@ -22,7 +22,7 @@ abi build --compress          # build the host cdylib and wrap it into a hybrid 
 ```
 
 With `@abitious/cli` installed, `abi build --compress` auto-resolves the stub from the
-installed platform package — no `--stub` needed (pass `--stub <path>` to override).
+installed platform package - no `--stub` needed (pass `--stub <path>` to override).
 
 ## Programmatic
 

@@ -1,6 +1,6 @@
 # The pressed-data section format
 
-**FROZEN — never change.** This is the on-disk compatibility contract between an
+**FROZEN - never change.** This is the on-disk compatibility contract between an
 abitious hybrid `.node` and every reader in the ecosystem. Existing hybrids must
 keep decoding forever, so the layout below is fixed; new capability goes in new
 fields behind the `has_config` flag or a new format, never by re-interpreting
@@ -9,9 +9,9 @@ these bytes. The checked-in interop corpus
 
 This format is the mirror image of:
 
-- **the reader** — `decmpfs`'s `unwrap_if_hybrid`
+- **the reader** - `decmpfs`'s `unwrap_if_hybrid`
   (`decmpfs/crates/decmpfs/src/addon.rs`), and
-- **the producer spec** — socket-btm's
+- **the producer spec** - socket-btm's
   `packages/build-infra/lib/compressed-binary-format-constants.mts`
   (`smol_segment_reader.c`).
 
@@ -21,14 +21,14 @@ This format is the mirror image of:
 ## Where the section lives
 
 The pressed-data blob is stored as a **signable object-file section**, located via
-the binary's section / load-command table — **never** an EOF footer (an appended
+the binary's section / load-command table - **never** an EOF footer (an appended
 footer breaks Mach-O code-signature validation).
 
 | Object format | Location                                                      |
 | ------------- | ------------------------------------------------------------- |
 | Mach-O 64-bit | section `__PRESSED_DATA` in segment `SMOL`                    |
 | ELF 64-bit    | section `.PRESSED_DATA`                                       |
-| PE / COFF     | section `.PRESSED` — the 8-char truncation of `.PRESSED_DATA` |
+| PE / COFF     | section `.PRESSED` - the 8-char truncation of `.PRESSED_DATA` |
 
 The magic dispatch: `cf fa ed fe` / `fe ed fa cf` → Mach-O, `7f 45 4c 46` → ELF,
 `4d 5a` (`MZ`) → PE.
@@ -40,8 +40,8 @@ All integers are little-endian. Sizes in bytes.
 | Field             | Size              | Notes                                                             |
 | ----------------- | ----------------- | ----------------------------------------------------------------- |
 | magic marker      | 32                | ASCII `__SMOL_PRESSED_DATA_MAGIC_MARKER`                          |
-| compressed size   | 8                 | u64 — length of the zstd payload                                  |
-| uncompressed size | 8                 | u64 — length of the raw `.node` addon                             |
+| compressed size   | 8                 | u64 - length of the zstd payload                                  |
+| uncompressed size | 8                 | u64 - length of the raw `.node` addon                             |
 | cache key         | 16                | first 16 bytes of `SHA-256(raw addon)`                            |
 | platform metadata | 3                 | `platform`, `arch`, `libc` enum bytes (below)                     |
 | integrity         | 64                | `SHA-512(zstd payload)`                                           |
@@ -61,7 +61,7 @@ Fixed header length up to and including `has_config` is **132 bytes**
 ## Decode contract
 
 `decode_pressed_data` (and `unwrap_if_hybrid`, which finds the section first)
-returns `Some(raw addon)` only when **all** of the following hold, else `None` —
+returns `Some(raw addon)` only when **all** of the following hold, else `None` -
 never partial bytes:
 
 1. the buffer is at least 132 bytes and starts with the magic marker;
@@ -90,9 +90,9 @@ caches / installers, not required to recover the addon).
 
 ## Inspecting a hybrid
 
-`abi inspect <file.node>` prints this header — magic, compressed/uncompressed
+`abi inspect <file.node>` prints this header - magic, compressed/uncompressed
 sizes, the cache key, the platform/arch/libc target, `has_config`, and whether
-`SHA-512(payload)` verifies — without decompressing (`--json` for a machine
+`SHA-512(payload)` verifies - without decompressing (`--json` for a machine
 report). `abi inspect --decompress <file.node> [-o out]` recovers the raw addon.
 The same header fields are exposed programmatically by
 `abitious_decmpfs::inspect_hybrid` / `read_section_info` (returning a `SectionInfo`).

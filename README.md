@@ -2,7 +2,7 @@
 
 ![coverage score](assets/coverage-score.svg) [![Socket Badge](https://badge.socket.dev/cargo/package/abitious/0.1.0)](https://badge.socket.dev/cargo/package/abitious/0.1.0)
 
-Ship Node.js native addons (`.node`) as **compressed hybrid files** — smaller to
+Ship Node.js native addons (`.node`) as **compressed hybrid files** - smaller to
 download, smaller on disk, and loadable everywhere.
 
 A `.node` addon is a native library. They are big, and every install ships the raw
@@ -14,10 +14,10 @@ real addon zstd-compressed inside a signed object-file section:
   smaller; the `require()` path is unchanged.
 - **On decmpfs-aware package managers** (bun, pnpm-pacquet, aube, zpm), the
   install step unwraps the hybrid back to the raw addon and stores it with
-  filesystem compression, so the kernel decompresses it on read — native load,
+  filesystem compression, so the kernel decompresses it on read - native load,
   smallest on-disk footprint.
 
-Both paths read **one frozen section format** — see
+Both paths read **one frozen section format** - see
 [`docs/pressed-data-format.md`](docs/pressed-data-format.md). It mirrors the
 format `decmpfs` reads (`unwrap_if_hybrid`) and `socket-btm` produces, so the
 whole ecosystem interoperates.
@@ -64,4 +64,4 @@ a poisoned entry in a shared `/tmp` is never loaded.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).
