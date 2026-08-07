@@ -41,15 +41,15 @@ export function bumpWorkspaceCargo(cargoToml: string, version: string): string {
       // (1) the `[workspace.package]` header plus everything up to its
       // `version = "` key (captured to re-emit), (2) the old version between
       // the quotes (replaced), (3) the closing quote (captured).
-      /(\[workspace\.package\][^[]*?\nversion\s*=\s*")[^"]+(")/,
-      `$1${version}$2`,
+      /(?<header>\[workspace\.package\][^[]*?\nversion\s*=\s*")[^"]+(?<close>")/,
+      (match, header, close) => `${header}${version}${close}`,
     )
     .replace(
       // (1) an internal dep pin `path = "crates/…", version = "` (captured),
       // (2) the old version between the quotes (replaced), (3) the closing
       // quote (captured).
-      /(path = "crates\/[^"]+", version = ")[^"]+(")/g,
-      `$1${version}$2`,
+      /(?<pin>path = "crates\/[^"]+", version = ")[^"]+(?<close>")/g,
+      (match, pin, close) => `${pin}${version}${close}`,
     )
 }
 
@@ -98,7 +98,7 @@ export function promoteChangelog(
   }
   if (/\n## \[Unreleased\]/.test(src)) {
     return {
-      text: src.replace(/\n## \[Unreleased\]/, `\n## ${version}`),
+      text: src.replace(/\n## \[Unreleased\]/, () => `\n## ${version}`),
       changed: true,
       hasSection: true,
     }
@@ -106,7 +106,8 @@ export function promoteChangelog(
   return {
     text: src.replace(
       /\n## /,
-      `\n## ${version}\n\n- TODO: describe the user-visible changes in this release.\n\n## `,
+      () =>
+        `\n## ${version}\n\n- TODO: describe the user-visible changes in this release.\n\n## `,
     ),
     changed: true,
     hasSection: false,

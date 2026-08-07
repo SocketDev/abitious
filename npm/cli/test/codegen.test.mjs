@@ -37,7 +37,8 @@ test('gen-packages --print-matrix derives the tier-1 CI targets from the source 
   // --check test above), but excluded from the CI build until their toolchains /
   // validation land. Promote by flipping `tier1` in targets.mts.
   const matrix = JSON.parse(run('--print-matrix'))
-  // oxlint-disable-next-line unicorn/no-array-sort -- map() returns a fresh array and Node 18 lacks toSorted().
+  // map() returns a fresh array and Node 18 lacks toSorted().
+  // oxlint-disable-next-line unicorn/no-array-sort -- fresh array sort
   const triples = matrix.map(m => m.triple).sort()
   assert.deepEqual(triples, [
     'darwin-arm64',
@@ -53,7 +54,8 @@ test('gen-packages --print-matrix-all derives the full release target set (all 8
   // build (the tier-1 filter is only the fast push/PR subset). Single-sourced from
   // targets.mts, so the triple list is never duplicated in YAML.
   const matrix = JSON.parse(run('--print-matrix-all'))
-  // oxlint-disable-next-line unicorn/no-array-sort -- map() returns a fresh array and Node 18 lacks toSorted().
+  // map() returns a fresh array and Node 18 lacks toSorted().
+  // oxlint-disable-next-line unicorn/no-array-sort -- fresh array sort
   const triples = matrix.map(m => m.triple).sort()
   assert.deepEqual(triples, [
     'darwin-arm64',
@@ -68,7 +70,8 @@ test('gen-packages --print-matrix-all derives the full release target set (all 8
   // Every entry carries the fields the release workflow consumes, incl. `libc` (the
   // musl toolchain gate) which is present (non-empty) for the two musl targets.
   const musl = matrix.filter(m => m.libc === 'musl').map(m => m.triple)
-  // oxlint-disable-next-line unicorn/no-array-sort -- map() returns a fresh array and Node 18 lacks toSorted().
+  // map() returns a fresh array and Node 18 lacks toSorted().
+  // oxlint-disable-next-line unicorn/no-array-sort -- fresh array sort
   musl.sort()
   assert.deepEqual(musl, ['linux-arm64-musl', 'linux-x64-musl'])
   for (const entry of matrix) {
