@@ -126,6 +126,19 @@ async function run(cmd: string, args: string[]): Promise<RunResult> {
   }
 }
 
+// Regenerate pnpm-lock.yaml against the catalog the taze passes rewrote.
+// Explicitly non-frozen: CI sets CI=true, which makes a bare `pnpm install`
+// frozen, and a frozen install refuses the very regeneration this exists to
+// perform (ERR_PNPM_LOCKFILE_CONFIG_MISMATCH). A failed resync marks the run
+// red rather than leaving the catalog and lockfile disagreeing.
+async function resyncLockfile(): Promise<boolean> {
+  const { ok } = await run('pnpm', ['install', '--no-frozen-lockfile'])
+  if (!ok) {
+    process.exitCode = process.exitCode || 1
+  }
+  return ok
+}
+
 interface Step {
   readonly args: string[]
   readonly cmd: string
@@ -279,6 +292,11 @@ export async function main(): Promise<void> {
   // workspace + fleet catalog source (+ their template/base sources in the
   // wheelhouse) before `pnpm install` regenerates the lockfile. Enforced by
   // scripts/fleet/check/stable-aliases-match-base.mts.
+  //
+  // The two flags feed the coupling backstop below Pass 3a: whether a lockfile
+  // resync was attempted, and whether the stale-patch hard gate blocked one.
+  let lockfileResyncAttempted = false
+  let patchGateBlocked = false
   if (process.exitCode !== 1) {
     const catalogFiles = [
       PNPM_WORKSPACE_YAML,
@@ -352,10 +370,8 @@ export async function main(): Promise<void> {
             `update: auto-re-keyed '${r.name}' patch ${r.oldVersion} → ${r.newVersion} (${r.newPatchPath}).`,
           )
         }
-        const { ok } = await run('pnpm', ['install', '--no-frozen-lockfile'])
-        if (!ok) {
-          process.exitCode = process.exitCode || 1
-        }
+        lockfileResyncAttempted = true
+        await resyncLockfile()
       } else {
         // Re-key did not fully converge: fall back to the loud manual gate with
         // whatever keys are still stale as the source of truth.
@@ -364,14 +380,28 @@ export async function main(): Promise<void> {
             findStalePatchKeysInFile(PNPM_WORKSPACE_YAML),
           ),
         )
+        patchGateBlocked = true
         process.exitCode = 1
       }
     } else {
-      const { ok } = await run('pnpm', ['install', '--no-frozen-lockfile'])
-      if (!ok) {
-        process.exitCode = process.exitCode || 1
-      }
+      lockfileResyncAttempted = true
+      await resyncLockfile()
     }
+  }
+
+  // Pass 3b — the catalog↔lockfile coupling backstop, deliberately ungated.
+  // Every pass above sits behind `if (process.exitCode !== 1)`, so an earlier
+  // red — the packument gate, a taze crash — skips Pass 3a and returns with
+  // pnpm-workspace.yaml bumped and pnpm-lock.yaml untouched. That half-finished
+  // tree is the state every later frozen install dies on
+  // (ERR_PNPM_LOCKFILE_CONFIG_MISMATCH) and a blanket stage then sweeps into a
+  // commit as a catalog bump without its lockfile. The resync here keeps the
+  // two files moving together on the failure path; the run still reports red.
+  // The one skip is the stale-patch hard gate: its install genuinely cannot
+  // resolve (ERR_PNPM_UNUSED_PATCH), and a retry would only bury that gate's
+  // message under a second error.
+  if (!lockfileResyncAttempted && !patchGateBlocked) {
+    await resyncLockfile()
   }
 
   // Pass 4 — multi-ecosystem soak-aware plans. Beyond npm, a repo may carry Rust

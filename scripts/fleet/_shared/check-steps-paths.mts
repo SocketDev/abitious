@@ -517,6 +517,20 @@ export function buildPathsAndSupplyChainSteps(): CheckStep[] {
         'scripts/fleet/check/bundle-catalog-pins-are-locked.mts',
         '--quiet',
       ]),
+    // The member half of the release bundle's fetcher stamp: the repo-owned
+    // dep-0 fetcher pair (scripts/repo/bootstrap/fleet.d.mts + fleet.mjs)
+    // matches the `fetcher` sha256 hashes the pinned pack's manifest stamps.
+    // No pack delivers the fetcher and hydration never rewrites it — a fix
+    // reaches a member ONLY via a cascade commit, so a member left behind
+    // keeps reproducing retired fetcher bugs (2026-08-07: a stale member
+    // fetcher re-untracked .github/dependabot.yml three times after the fix
+    // landed in the wheelhouse). Vacuous without a bundle.ref pin; fails open
+    // when the pinned manifest can't be fetched or predates the stamp.
+    () =>
+      run('node', [
+        'scripts/fleet/check/member-fetcher-matches-pinned-pack.mts',
+        '--quiet',
+      ]),
     // Every static bare-specifier import in a .claude/hooks/{fleet,repo} file
     // must resolve to a package.json dependencies/devDependencies entry — the
     // general form of the baseline-catalog-deps-are-covered incident above

@@ -241,7 +241,18 @@ export function spliceCatalogEntry(
       continue
     }
     if (target.localeCompare(nameOf(line)) < 0) {
-      insertAt = catalogIdx + 1 + i
+      // A doc-comment run directly above an entry documents THAT entry.
+      // Insert above the run, not between the run and its entry — landing
+      // between them hands the run to the new entry, and the segment filter
+      // then drops the docs whenever it drops the new entry (#73).
+      let entryStart = i
+      while (
+        entryStart > 0 &&
+        blockLines[entryStart - 1]!.trimStart().startsWith('#')
+      ) {
+        entryStart -= 1
+      }
+      insertAt = catalogIdx + 1 + entryStart
       break
     }
     insertAt = catalogIdx + 1 + i + 1

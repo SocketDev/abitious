@@ -85,6 +85,9 @@ const ALLOWLIST = new Set<string>([
   // Verb-assertion: "convention guards CONSULT the fleet-context detector" — a
   // declarative statement, just verb-tailed (consult) rather than -are-/-resolve.
   'convention-guards-consult-fleet-context',
+  // Verb-assertion: "external refs CARRY sha and label" — declarative,
+  // verb-tailed (carry) with a direct object, same family as consult above.
+  'external-refs-carry-sha-and-label',
   // Verb-assertion: "lint configs PROTECT verbatim paths" — declarative,
   // verb-tailed (protect).
   'lint-configs-protect-verbatim',
