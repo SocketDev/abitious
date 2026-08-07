@@ -1,4 +1,7 @@
 {
+  "ai": {
+    "localAssist": true
+  },
   "$schema": "../socket-wheelhouse-schema.json",
   "schemaVersion": 1,
   "repoName": "abitious",
@@ -6,7 +9,17 @@
     "ref": "fleet-pack-cb1dd209d91f98077a1ba8a971d17d2f0d82ae3f",
     "cascadeSha": "cb1dd209d91f98077a1ba8a971d17d2f0d82ae3f"
   },
-  "repo": { "type": "solo" },
-  "build": { "from": "crates-registry", "type": "rust" },
-  "secondaries": [{ "from": "npm-registry", "type": "addon" }]
+  "repo": {
+    "type": "solo"
+  },
+  "build": {
+    "from": "crates-registry",
+    "type": "rust"
+  },
+  "secondaries": [
+    {
+      "from": "npm-registry",
+      "type": "addon"
+    }
+  ]
 }
