@@ -1,5 +1,5 @@
 {
-  "name": "abitious-workspace",
+  "name": "abitious",
   "private": true,
   "description": "Workspace root for the abitious npm distribution (@abitious/cli + per-triple platform packages). The crates are the Cargo workspace; this drives codegen, typecheck, and the JS tests.",
   "license": "MIT",
@@ -8,7 +8,7 @@
     "coverage": "node scripts/repo/coverage.mts",
     "gen": "node scripts/repo/gen-packages.mts",
     "gen:check": "node scripts/repo/gen-packages.mts --check",
-    "test": "node --test 'npm/cli/test/**/*.test.mjs' 'scripts/repo/**/*.test.mts'",
+    "test": "node scripts/fleet/test.mts",
     "release": "node scripts/repo/release.mts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check": "node scripts/fleet/check.mts",

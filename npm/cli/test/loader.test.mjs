@@ -1,12 +1,13 @@
 // Unit tests for the platform loader — the host→triple mapping + package resolution,
 // driven entirely by injected fake platform/arch/libc + a fake resolver, so every
 // branch (glibc/musl, each supported triple, missing dep, unsupported host) is proven
-// off-host with zero installs. Run: node --test.
+// off-host with zero installs. Run: pnpm test npm/cli/test/loader.test.mjs.
 
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { test } from 'node:test'
+
+import { test } from 'vitest'
 
 const require = createRequire(import.meta.url)
 const loader = require('../loader.cjs')

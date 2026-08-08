@@ -101,11 +101,11 @@ jobs:
           persist-credentials: false
       # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-07-12); keep the
       # `toolchain:` here in lockstep with it + build.yml.
-      - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
+      - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly (2026-07-16)
         with:
           toolchain: nightly-2026-07-12
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2 (2026-03-12)
         with:
           key: ${{ matrix.os }}
       - name: rustfmt
@@ -128,10 +128,10 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0 (2026-06-29)
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
+      - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly (2026-07-16)
         with:
           toolchain: nightly-2026-07-12
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2 (2026-03-12)
       - name: positive allowlist — the shipped stub/reader tree is the audited set only
         run: |
           set -euo pipefail

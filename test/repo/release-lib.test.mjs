@@ -1,6 +1,8 @@
-// No-network, no-fs unit tests for the pure release helpers. Run: node --test.
+// No-network, no-fs unit tests for the pure release helpers.
+// Run: pnpm test test/repo/release-lib.test.mjs.
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+
+import { test } from 'vitest'
 
 import {
   bumpNpmManifest,
@@ -9,7 +11,7 @@ import {
   promoteChangelog,
   resolveRelease,
   workspaceVersion,
-} from './release-lib.mts'
+} from '../../scripts/repo/release-lib.mts'
 
 void test('resolveRelease: prerelease hint finalizes, arg bumps, else as-committed', () => {
   assert.deepEqual(resolveRelease('0.1.1-prerelease', ''), {

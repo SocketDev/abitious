@@ -2,7 +2,7 @@
 // platform package (loader.cjs), execs the prebuilt `abi`, and forwards argv + the exit
 // code. Every branch is driven off a hermetic sandbox — copies of the cli entry files plus a
 // fake @abitious/<triple> package carrying a fake `abi` we control — so no real install or
-// native binary is needed. Run: node --test.
+// native binary is needed. Run: pnpm test npm/cli/test/bin.test.mjs.
 
 import assert from 'node:assert/strict'
 import {
@@ -15,10 +15,11 @@ import {
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
-import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { safeDeleteSync } from '@socketsecurity/lib-stable/fs/safe'
+import { afterAll, test } from 'vitest'
+
+import { safeDelete } from '@socketsecurity/lib-stable/fs/safe'
 import { spawnSync } from '@socketsecurity/lib-stable/process/spawn/child'
 
 const require = createRequire(import.meta.url)
@@ -42,7 +43,7 @@ const BIN_NAME = loader.SUPPORTED.find(t => t.triple === TRIPLE).bin
 // the exec-routing subprocess cases run on unix only. The resolution logic itself is proven
 // cross-platform by loader.test.mjs.
 const unixOnly = {
-  skip: process.platform === 'win32' ? 'exec routing is unix-only here' : false,
+  skip: process.platform === 'win32',
 }
 
 const sandboxes = []
@@ -77,14 +78,13 @@ function makeSandbox({ withPackage = true, bin } = {}) {
   return root
 }
 
-test.after(() => {
-  for (let i = 0, { length } = sandboxes; i < length; i += 1) {
-    const root = sandboxes[i]
-    // Exact, test-created mkdtemp path only — never a glob or an outside path.
-    if (root.startsWith(os.tmpdir())) {
-      safeDeleteSync(root)
-    }
-  }
+afterAll(async () => {
+  // Exact, test-created mkdtemp paths only — never a glob or an outside path.
+  await Promise.allSettled(
+    sandboxes
+      .filter(root => root.startsWith(os.tmpdir()))
+      .map(root => safeDelete(root)),
+  )
 })
 
 function runBin(root, args = []) {
