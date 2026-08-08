@@ -70,7 +70,7 @@ function resolveNightly(): string {
     )
   }
   const names = list
-    .split('\n')
+    .split(/\r?\n/)
     .map(line => line.trim().replace(/ \(.*\)$/, ''))
     .filter(Boolean)
   const rolling = names.find(
