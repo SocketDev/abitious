@@ -6,8 +6,8 @@
   "schemaVersion": 1,
   "repoName": "abitious",
   "bundle": {
-    "ref": "fleet-pack-5c32eeebb1239c8e9c4b5a7c49acfc5428195a44",
-    "cascadeSha": "5c32eeebb1239c8e9c4b5a7c49acfc5428195a44"
+    "ref": "fleet-pack-bbc7f84f47ef5bcd2ab2effcc8d07926a921da3f",
+    "cascadeSha": "bbc7f84f47ef5bcd2ab2effcc8d07926a921da3f"
   },
   "repo": {
     "type": "solo"
