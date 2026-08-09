@@ -176,7 +176,13 @@ jobs:
           # Fleet packages don't ship scripts/ in their pack; if one does, the
           # verify digest compare fails loudly rather than tagging mixed
           # content.
-          git checkout "${PIPELINE_SHA}" -- scripts/fleet
+          # A THIN member never TRACKS scripts/fleet — its hydrated payload
+          # is already on disk (untracked, so the detach left it in place)
+          # and `git checkout <sha> -- scripts/fleet` dies on "pathspec did
+          # not match". Overlay from git only where git owns the path.
+          if git cat-file -e "${PIPELINE_SHA}:scripts/fleet" 2>/dev/null; then
+            git checkout "${PIPELINE_SHA}" -- scripts/fleet
+          fi
           # Re-install against the content commit's lockfile so the rebuild
           # reproduces the published bytes.
           pnpm install --frozen-lockfile
