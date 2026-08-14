@@ -235,7 +235,7 @@ if (process.argv.includes('--badge')) {
     )
   }
   const regionPct = Math.round(totals.regions.percent)
-  const out = path.join(root, 'assets', 'coverage-score.svg')
+  const out = path.join(root, 'assets', 'repo', 'coverage-score.svg')
   mkdirSync(path.dirname(out), { recursive: true })
   // The badge reports REGION coverage — the conservative, fleet-canonical number
   // (mirrors decmpfs/assets/coverage-score.svg). Line coverage is logged alongside.
