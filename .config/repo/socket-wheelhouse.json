@@ -21,5 +21,8 @@
       "from": "npm-registry",
       "type": "addon"
     }
-  ]
+  ],
+  "capabilities": {
+    "cargo": ["."]
+  }
 }
