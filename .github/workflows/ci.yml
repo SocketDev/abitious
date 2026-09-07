@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0 (2026-06-29)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install zizmor (pinned, integrity-verified)
@@ -96,7 +96,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0 (2026-06-29)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-07-12); keep the
@@ -125,7 +125,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0 (2026-06-29)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly (2026-07-16)
@@ -174,7 +174,9 @@ jobs:
             exit 1
           fi
           echo "OK — every shipped dependency is on the audited allowlist"
-      - name: banlist (secondary) — no HTTP/async/codesign/CLI crates on the shipped tree
+      - name:
+          banlist (secondary) — no HTTP/async/codesign/CLI crates on the shipped
+          tree
         run: |
           set -euo pipefail
           tree=$(cargo tree -e normal -p abitious-decmpfs; cargo tree -e normal -p abitious-stub)
@@ -186,7 +188,9 @@ jobs:
             exit 1
           fi
           echo "no banned crates on the shipped tree (the resign/apple-codesign chain stays producer-only)"
-      - name: no openssl-sys anywhere (incl. the producer resign exception, dev/build deps)
+      - name:
+          no openssl-sys anywhere (incl. the producer resign exception, dev/build
+          deps)
         run: |
           set -euo pipefail
           # Default-features workspace graph (the producer's apple-codesign uses rustls +
