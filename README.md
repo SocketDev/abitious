@@ -3,7 +3,7 @@
 [![Follow @SocketSecurity](https://raw.githubusercontent.com/SocketDev/abitious/HEAD/assets/fleet/badge-follow-x.svg)](https://twitter.com/SocketSecurity)
 [![Follow @socket.dev on Bluesky](https://raw.githubusercontent.com/SocketDev/abitious/HEAD/assets/fleet/badge-follow-bluesky.svg)](https://bsky.app/profile/socket.dev)
 
-![coverage score](assets/repo/coverage-score.svg) [![Socket Badge](https://badge.socket.dev/cargo/package/abitious/0.1.0)](https://badge.socket.dev/cargo/package/abitious/0.1.0)
+<picture><img src="assets/repo/coverage-score.svg" height="20" alt="Coverage" /></picture> [![Socket Badge](https://badge.socket.dev/cargo/package/abitious/0.1.0)](https://badge.socket.dev/cargo/package/abitious/0.1.0)
 
 Ship Node.js native addons (`.node`) as **compressed hybrid files** - smaller to
 download, smaller on disk, and loadable everywhere.
