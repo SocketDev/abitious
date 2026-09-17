@@ -295,10 +295,8 @@ const ALL_TEST_GLOBS = ['**/test/**/*.test.{js,ts,mjs,mts,cjs}']
 /**
  * Resolve one speed lane without dropping unclassified tests.
  *
- * A repository with explicit fast membership also gets explicit mid
- * membership. Slow owns the remainder, so a newly added test starts in the
- * conservative lane until measurement moves it. Repositories without an
- * explicit fast lane keep the original fast-complement behavior.
+ * Mid and slow membership is explicit. Fast owns the remainder, so a new test
+ * stays in the normal development loop until measurement moves it.
  */
 export function resolveLaneSelection(
   lanes: ReturnType<typeof readVitestLanes>,
@@ -308,20 +306,19 @@ export function resolveLaneSelection(
   const mid = lanes.mid ?? []
   const slow = lanes.slow ?? []
   if (lane === 'fast') {
-    return fast.length
-      ? { exclude: [], include: laneToTestGlobs(fast) }
-      : { exclude: [...mid, ...slow], include: [...ALL_TEST_GLOBS] }
+    return { exclude: [...mid, ...slow], include: [...ALL_TEST_GLOBS] }
   }
   if (lane === 'mid') {
     return {
-      exclude: fast.length ? [...fast] : [],
+      exclude: [...fast, ...slow],
       include: laneToTestGlobs(mid),
     }
   }
   if (lane === 'slow') {
-    return fast.length
-      ? { exclude: [...fast, ...mid], include: [...ALL_TEST_GLOBS] }
-      : { exclude: [], include: laneToTestGlobs(slow) }
+    return {
+      exclude: [...fast, ...mid],
+      include: laneToTestGlobs(slow),
+    }
   }
   return { exclude: [], include: [...ALL_TEST_GLOBS] }
 }
@@ -420,7 +417,7 @@ const config = defineConfig({
     // (their own `node --test` runners pick them up separately).
     exclude: [
       '**/node_modules/**',
-      ...ORDINARY_TEST_EXCLUDES,
+      ...(conformanceTier ? [] : ORDINARY_TEST_EXCLUDES),
       // The conformance tier is opt-in via `pnpm run test:conformance`. Every
       // other lane drops it: these wrappers each spawn a FULL external corpus
       // (Test262 is ~92k scenarios per implementation), which is minutes to
@@ -440,14 +437,10 @@ const config = defineConfig({
       // set from the staged pre-commit run.
       ...GENERATED_GLOBS,
       '**/.{idea,git,cache,output,temp}/**',
+      '**/.claude/**',
       '.git-hooks/**',
       '.config/fleet/oxlint-plugin/**',
       'scripts/**/test/**',
-      '.claude/hooks/**/test/**',
-      // Ephemeral git worktrees (sub-agent / companion sessions) carry a full
-      // checkout — their test copies would pollute the primary's discovery and
-      // fail against code the primary has already moved past.
-      '**/.claude/worktrees/**',
       // `template/**` holds CANONICAL non-test sources (the cascaded LIVE
       // copies are what the suite runs); live test/repo is the sole test
       // authoring home, so template is excluded unconditionally.
