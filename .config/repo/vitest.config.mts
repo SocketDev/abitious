@@ -295,14 +295,13 @@ const ALL_TEST_GLOBS = ['**/test/**/*.test.{js,ts,mjs,mts,cjs}']
 /**
  * Resolve one speed lane without dropping unclassified tests.
  *
- * Mid and slow membership is explicit. Fast owns the remainder, so a new test
- * stays in the normal development loop until measurement moves it.
+ * Slow takes precedence over mid. Fast owns every test outside mid and slow,
+ * so a new test stays in the development loop until measurement moves it.
  */
 export function resolveLaneSelection(
   lanes: ReturnType<typeof readVitestLanes>,
   lane: string | undefined,
 ): { exclude: string[]; include: string[] } {
-  const fast = lanes.fast ?? []
   const mid = lanes.mid ?? []
   const slow = lanes.slow ?? []
   if (lane === 'fast') {
@@ -310,13 +309,13 @@ export function resolveLaneSelection(
   }
   if (lane === 'mid') {
     return {
-      exclude: [...fast, ...slow],
+      exclude: [...slow],
       include: laneToTestGlobs(mid),
     }
   }
   if (lane === 'slow') {
     return {
-      exclude: [...fast, ...mid],
+      exclude: [],
       include: laneToTestGlobs(slow),
     }
   }
@@ -393,8 +392,7 @@ const config = defineConfig({
       'test/fleet/scripts/setup.mts',
       'test/repo/scripts/setup.mts',
     ].filter(p => existsSync(p)),
-    // Explicit fast and mid membership leaves every unclassified test in slow.
-    // Legacy configs retain implicit fast membership and explicit mid globs.
+    // Slow takes precedence over mid; fast owns every remaining test.
     // `**/`-anchored so a
     // monorepo's nested `packages/<name>/test/**` trees are discovered from this
     // one root config — a bare `test/**/*.test...` only anchors at the repo

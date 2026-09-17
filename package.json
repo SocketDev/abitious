@@ -164,12 +164,14 @@
     "types:fix": "node scripts/fleet/types/fix.mts",
     "browser:bridge": "node scripts/fleet/browser/bridge/cli.mts",
     "browser:doctor": "node scripts/fleet/browser/bridge/doctor.mts",
-    "browser:setup": "node scripts/fleet/setup/browser/browser-bridge.mts",
+    "browser:setup": "node scripts/fleet/setup/browser/bridge.mts",
     "browser:verify-installed": "node scripts/fleet/browser/bridge/verify-installed.mts",
     "check:deps": "node scripts/fleet/check.mts --category=deps",
     "check:hooks": "node scripts/fleet/check.mts --category=hooks",
     "check:types": "node scripts/fleet/check.mts --category=types",
-    "npm:trust:browser": "node scripts/fleet/registry-infra/npm/settings/trusted-publisher/browser.mts"
+    "npm:trust:browser": "node scripts/fleet/registry-infra/npm/settings/trusted-publisher/browser.mts",
+    "npm:scan": "node scripts/fleet/npm/scan.mts",
+    "ai-balancer:doctor": "node scripts/fleet/ai/balancer/doctor.mts"
   },
   "devDependencies": {
     "@bcoe/v8-coverage": "catalog:",
