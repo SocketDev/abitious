@@ -2,24 +2,24 @@ name: Setup pnpm
 description: >
   Install a pinned, integrity-verified pnpm onto PATH — the wheelhouse approach
   (a SRI-checked release asset via install-tool.mjs), not `npm i -g pnpm` or
-  corepack. Pinned to the fleet's pnpm version so decmpfs installs reproducibly.
-  Standalone-asset platforms only (linux/darwin-arm64/win); decmpfs runs pnpm on
+  corepack. Pinned to the fleet's pnpm version so abitious installs reproducibly.
+  Standalone-asset platforms only (linux/darwin-arm64/win); abitious runs pnpm on
   ubuntu, so the darwin-x64 npm-tarball special case is intentionally omitted.
 
 runs:
   using: composite
   steps:
-    - name: Install pnpm (pinned + SRI-verified)
+    - name: Install pnpm (pinned + sri-verified)
       shell: bash
       run: | # zizmor: ignore[github-env]
         set -euo pipefail
         # Pinned pnpm + per-asset sha256 (from the pnpm GitHub release digests).
-        VERSION="11.10.0"
+        VERSION="12.4.2"
         case "${RUNNER_OS}-${RUNNER_ARCH}" in
-          Linux-X64)   ASSET="pnpm-linux-x64.tar.gz";     INTEGRITY="cf22c9f1ba90f67c9a5cfb1cbe9c2087cf4c3a5c409dad738c1f8a38b8137666" ;;
-          Linux-ARM64) ASSET="pnpm-linux-arm64.tar.gz";   INTEGRITY="7da014033800db506095d8d5eb15c4b1df7aa9cc6a4992634e4d59c3985e720b" ;;
-          macOS-ARM64) ASSET="pnpm-darwin-arm64.tar.gz";  INTEGRITY="d0d8a55b47dbe07a80d13fec7ee5af9bdca36187e61f9562d72d81dd637178c4" ;;
-          Windows-X64) ASSET="pnpm-win32-x64.zip";        INTEGRITY="bb25e88285354cd2510a481859e5695b68f5def16f22e4ffb7aa76a87af4f700" ;;
+          Linux-X64)   ASSET="pnpm-linux-x64.tar.gz";     INTEGRITY="ce1ed690fe9c2f091d7267e1afbe9380abb08bb577e95348fda194a41147d2ec" ;;
+          Linux-ARM64) ASSET="pnpm-linux-arm64.tar.gz";   INTEGRITY="dc4a29d9848ef005bec3d36d49aae84b115ec3b18c110a3a7f33c37f7fd520bf" ;;
+          macOS-ARM64) ASSET="pnpm-darwin-arm64.tar.gz";  INTEGRITY="5aae95a95f0a98f9372dee7d1797386011fa6571b06b82554c7c7847d201308e" ;;
+          Windows-X64) ASSET="pnpm-win32-x64.zip";        INTEGRITY="da35e3f401674646968243b0aa1984e910d94de735e04936db22e7554791518d" ;;
           *) echo "setup-pnpm: no pinned pnpm asset for ${RUNNER_OS}-${RUNNER_ARCH}" >&2; exit 1 ;;
         esac
         PNPM_DIR="${RUNNER_TEMP:-/tmp}/pnpm-bin"
