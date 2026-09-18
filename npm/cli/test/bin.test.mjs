@@ -2,7 +2,7 @@
 // platform package (loader.cjs), execs the prebuilt `abi`, and forwards argv + the exit
 // code. Every branch is driven off a hermetic sandbox — copies of the cli entry files plus a
 // fake @abitious/<triple> package carrying a fake `abi` we control — so no real install or
-// native binary is needed. Run: pnpm test npm/cli/test/bin.test.mjs.
+// native binary is needed. Run: `pnpm test` npm/cli/test/bin.test.mjs.
 
 import assert from 'node:assert/strict'
 import {
@@ -88,8 +88,11 @@ afterAll(async () => {
 })
 
 function runBin(root, args = []) {
+  const env = { ...process.env }
+  delete env.NODE_PATH
   return spawnSync(process.execPath, [path.join(root, 'bin.cjs'), ...args], {
     encoding: 'utf8',
+    env,
   })
 }
 
