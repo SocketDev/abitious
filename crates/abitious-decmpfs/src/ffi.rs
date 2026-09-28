@@ -12,6 +12,10 @@ pub extern "C" fn abitious_ffi_version() -> u32 {
 
 /// Probe the filesystem containing `path`: 0 supported, 1 already compressed,
 /// 2 unsupported, and -1 for invalid input or I/O failure.
+///
+/// # Safety
+///
+/// `path` must be null or point to a readable NUL-terminated UTF-8 string.
 #[no_mangle]
 pub unsafe extern "C" fn abitious_probe(path: *const c_char) -> i32 {
     let Some(path) = c_path(path) else {
@@ -27,6 +31,11 @@ pub unsafe extern "C" fn abitious_probe(path: *const c_char) -> i32 {
 
 /// Inspect a file and write its state to non-null output pointers.
 /// Returns 0 on success and -1 for invalid input or I/O failure.
+///
+/// # Safety
+///
+/// `path` must point to a readable NUL-terminated UTF-8 string. Each output
+/// pointer must be null or valid for writing one value of its declared type.
 #[no_mangle]
 pub unsafe extern "C" fn abitious_stat(
     path: *const c_char,
@@ -54,6 +63,11 @@ pub unsafe extern "C" fn abitious_stat(
 
 /// Compress `path` with the OS filesystem backend. Returns the Outcome code or -1
 /// for invalid input or an I/O error. Optional size pointers receive byte counts.
+///
+/// # Safety
+///
+/// `path` must point to a readable NUL-terminated UTF-8 string. Each output
+/// pointer must be null or valid for writing one `u64` value.
 #[no_mangle]
 pub unsafe extern "C" fn abitious_compress_file(
     path: *const c_char,
