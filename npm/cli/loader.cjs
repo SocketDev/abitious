@@ -51,6 +51,23 @@ function hostTriple({ platform, arch, report }) {
 /**
  * Resolve using the real process + require.resolve (npm/cli/index.cjs entry).
  */
+function loadNativeFfi({ getBuiltinModule = process.getBuiltinModule } = {}) {
+  if (typeof getBuiltinModule !== 'function') {
+    return undefined
+  }
+  for (const name of ['node:ffi', 'node:smol-ffi']) {
+    try {
+      const module = getBuiltinModule(name)
+      if (module) {
+        return { __proto__: null, name, module }
+      }
+    } catch {
+      // An unavailable experimental builtin is a normal feature-detection miss.
+    }
+  }
+  return undefined
+}
+
 function loadPlatform() {
   const { createRequire } = require('node:module')
   const req = createRequire(__filename)
@@ -67,28 +84,7 @@ function loadPlatform() {
 }
 
 /**
- * Resolve the installed platform package for a host and return the paths it
- * carries.
- *
- * @param {object} opts
- * @param {string} opts.platform Process.platform.
- * @param {string} opts.arch Process.arch.
- * @param {object} [opts.report] Process.report.getReport() (for glibc
- *   detection)
- * @param {(request: string) => string} opts.resolve Resolves
- *   `<pkg>/package.json` to an absolute path and throws when the optional
- *   dependency is not installed.
- *
- * @returns {{
- *   triple: string
- *   pkg: string
- *   dir: string
- *   stub: string
- *   bin: string
- * }}
- *
- * @throws {Error} An actionable error naming the host triple, the package to install,
- *   and what was tried, when no matching optional dependency is present.
+ * Resolve the installed platform package for a host and return its paths.
  */
 function resolvePlatform({ platform, arch, report, resolve }) {
   const triple = hostTriple({ platform, arch, report })
@@ -119,6 +115,7 @@ function resolvePlatform({ platform, arch, report, resolve }) {
 
   const dir = dirname(manifest)
   return {
+    __proto__: null,
     triple,
     pkg,
     dir,
@@ -128,10 +125,12 @@ function resolvePlatform({ platform, arch, report, resolve }) {
 }
 
 module.exports = {
+  __proto__: null,
   abiSuffix,
   hostTriple,
   resolvePlatform,
   loadPlatform,
+  loadNativeFfi,
   SUPPORTED,
   STUB_NODE,
 }

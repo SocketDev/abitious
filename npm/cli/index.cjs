@@ -6,6 +6,9 @@
 // error that names the package to install. The `abi` bin (bin.cjs) execs `bin`; a JS toolchain
 // injecting hybrids programmatically reads `stub`.
 
-const { loadPlatform } = require('./loader.cjs')
+const { loadPlatform, loadNativeFfi } = require('./loader.cjs')
 
-module.exports = loadPlatform()
+module.exports = {
+  ...loadPlatform(),
+  nativeFfi: loadNativeFfi(),
+}

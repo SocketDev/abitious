@@ -28,6 +28,21 @@ export interface PlatformResolution {
 }
 
 /**
+ * A built-in FFI module when the current Node runtime provides one.
+ */
+export interface NativeFfiResolution {
+  name: 'node:ffi' | 'node:smol-ffi'
+  module: Record<string, unknown>
+}
+
+/**
+ * The runtime package entry combines platform paths with optional FFI support.
+ */
+export interface AbitiousRuntime extends PlatformResolution {
+  nativeFfi: NativeFfiResolution | undefined
+}
+
+/**
  * A host descriptor — the fields of `process` the loader reads.
  */
 export interface Host {

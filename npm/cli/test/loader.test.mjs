@@ -1,7 +1,7 @@
 // Unit tests for the platform loader — the host→triple mapping + package resolution,
 // driven entirely by injected fake platform/arch/libc + a fake resolver, so every
 // branch (glibc/musl, each supported triple, missing dep, unsupported host) is proven
-// off-host with zero installs. Run: pnpm test npm/cli/test/loader.test.mjs.
+// off-host with zero installs. Run: `pnpm test npm/cli/test/loader.test.mjs`.
 
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
@@ -11,8 +11,14 @@ import { test } from 'vitest'
 
 const require = createRequire(import.meta.url)
 const loader = require('../loader.cjs')
-const { abiSuffix, hostTriple, loadPlatform, resolvePlatform, SUPPORTED } =
-  loader
+const {
+  abiSuffix,
+  hostTriple,
+  loadNativeFfi,
+  loadPlatform,
+  resolvePlatform,
+  SUPPORTED,
+} = loader
 
 // A glibc host reports a runtime version; a musl host does not.
 const GLIBC = { header: { glibcVersionRuntime: '2.39' } }
@@ -24,6 +30,33 @@ test('abiSuffix covers every host abi', () => {
   assert.equal(abiSuffix('linux', GLIBC), '-gnu')
   assert.equal(abiSuffix('linux', MUSL), '-musl')
   assert.equal(abiSuffix('linux', undefined), '-musl')
+})
+
+test('loadNativeFfi detects supported builtin names in priority order', () => {
+  const builtin = { dlopen: () => {} }
+  const seen = []
+  const result = loadNativeFfi({
+    getBuiltinModule(name) {
+      seen.push(name)
+      return name === 'node:smol-ffi' ? builtin : undefined
+    },
+  })
+  assert.equal(Object.getPrototypeOf(result), null)
+  assert.equal(result.name, 'node:smol-ffi')
+  assert.equal(result.module, builtin)
+  assert.deepEqual(seen, ['node:ffi', 'node:smol-ffi'])
+})
+
+test('loadNativeFfi treats absent APIs and rejected builtins as unsupported', () => {
+  assert.equal(loadNativeFfi({ getBuiltinModule: undefined }), undefined)
+  assert.equal(
+    loadNativeFfi({
+      getBuiltinModule() {
+        throw new Error('not available')
+      },
+    }),
+    undefined,
+  )
 })
 
 test('hostTriple maps each host to its @abitious/<triple>', () => {
