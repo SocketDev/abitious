@@ -1,4 +1,5 @@
-name: "ci: gates"
+name: 'ci: gates'
+run-name: 'gates: ${{ github.ref_name }}'
 
 # Dependencies: none — self-contained.
 #
@@ -47,11 +48,12 @@ env:
 
 jobs:
   audit:
-    name: 🛡️ Audit workflows (zizmor)
+    name: Audit workflows (zizmor)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        name: Check out
         with:
           persist-credentials: false
       - name: Install zizmor (pinned, integrity-verified)
@@ -72,11 +74,11 @@ jobs:
           fi
           tar -xzf /tmp/zizmor.tar.gz -C /tmp
           install -m 0755 "$(find /tmp -maxdepth 2 -name zizmor -type f | head -1)" /usr/local/bin/zizmor
-      - name: Audit .github
+      - name: Audit .GitHub tree
         run: zizmor --min-severity medium .github/
 
   test:
-    name: 🧪 Test (${{ matrix.os }})
+    name: Test (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -97,28 +99,31 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        name: Check out
         with:
           persist-credentials: false
       # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-07-12); keep the
       # `toolchain:` here in lockstep with it + build.yml.
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master (2026-09-12)
+        name: Rust toolchain
         with:
           toolchain: nightly-2026-07-12
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2 (2026-03-12)
+        name: Rust cache
         with:
           key: ${{ matrix.os }}
-      - name: rustfmt
+      - name: Rustfmt
         run: cargo fmt --all --check
       # Per-OS clippy lints every cfg-selected arm of the crate's own code (the
       # unix / windows `selfextract` seams) plus the engine it pulls in.
-      - name: clippy (all targets, deny warnings)
+      - name: Clippy (all targets, deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: test (workspace, locked, incl. the frozen interop tripwire)
+      - name: Test (workspace, locked, incl. the frozen interop tripwire)
         run: cargo test --workspace --locked
 
   deps:
-    name: 📦 Dependency budget (positive allowlist)
+    name: Dependency budget (positive allowlist)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -126,13 +131,16 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        name: Check out
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master (2026-09-12)
+        name: Rust toolchain
         with:
           toolchain: nightly-2026-07-12
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2 (2026-03-12)
-      - name: positive allowlist — the shipped stub/reader tree is the audited set only
+        name: Rust cache
+      - name: Positive allowlist (shipped tree is the audited set)
         run: |
           set -euo pipefail
           # The audited pure-Rust shipped dependency set. ADD a crate here only after
@@ -174,9 +182,7 @@ jobs:
             exit 1
           fi
           echo "OK — every shipped dependency is on the audited allowlist"
-      - name:
-          banlist (secondary) — no HTTP/async/codesign/CLI crates on the shipped
-          tree
+      - name: Banlist — no http/async/codesign/CLI crates on the tree
         run: |
           set -euo pipefail
           tree=$(cargo tree -e normal -p abitious-decmpfs; cargo tree -e normal -p abitious-stub)
@@ -188,9 +194,7 @@ jobs:
             exit 1
           fi
           echo "no banned crates on the shipped tree (the resign/apple-codesign chain stays producer-only)"
-      - name:
-          no openssl-sys anywhere (incl. the producer resign exception, dev/build
-          deps)
+      - name: No openssl-sys anywhere (incl. the resign exception)
         run: |
           set -euo pipefail
           # Default-features workspace graph (the producer's apple-codesign uses rustls +

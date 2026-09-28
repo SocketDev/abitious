@@ -26,7 +26,8 @@
 # Every action is pinned to a commit SHA (SocketDev sha_pinning_required), copied from the
 # fleet's canonical pins (decmpfs for the JS actions, envrypt for the Rust actions).
 
-name: build
+name: 'build: tier-1 native packages'
+run-name: 'build: ${{ github.ref_name }}'
 
 on:
   push:
@@ -75,45 +76,52 @@ jobs:
   # JS gates + the single-source-of-truth guard. No package install is needed for gen/tests
   # (pure node builtins); typecheck installs the pinned devDeps via pnpm.
   check:
+    name: Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # No `cache:` input is set, so setup-node does not cache here; the release-trigger
       # cache-poisoning heuristic is a low-confidence false positive.
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - name: Set up node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
-      - name: gen-packages --check (out-of-sync with targets.mts fails)
+      - name: Gen-packages --check (out-of-sync with targets.mts fails)
         run: node scripts/repo/gen-packages.mts --check
       # Fleet pnpm: a pinned, SRI-verified pnpm on PATH (sets
       # npm_config_manage_package_manager_versions=false) — NOT corepack (a fleet-wide
       # wheelhouse rule) and not `npm i -g pnpm`.
-      - uses: ./.github/actions/repo/setup-pnpm
-      - name: install devDeps
+      - name: Set up pnpm
+        uses: ./.github/actions/repo/setup-pnpm
+      - name: Install devdeps
         run: pnpm install --frozen-lockfile
-      - name: vitest (loader-resolution + codegen unit tests)
+      - name: Vitest (loader-resolution + codegen unit tests)
         run: pnpm test npm/cli/test
-      - name: typecheck (tsc --noEmit)
+      - name: Typecheck (tsc --noemit)
         run: pnpm run typecheck
 
   # Derive the CI matrix from the single source of truth.
   prepare:
+    name: Prepare
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.gen.outputs.matrix }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # No `cache:` input is set, so setup-node does not cache here; the release-trigger
       # cache-poisoning heuristic is a low-confidence false positive.
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - name: Set up node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
       - id: gen
-        name: derive matrix from scripts/repo/targets.mts
+        name: Derive the tier-1 matrix from targets.mts
         run: |
           set -euo pipefail
           matrix="$(node scripts/repo/gen-packages.mts --print-matrix)"
@@ -121,49 +129,56 @@ jobs:
 
   # Cross-build the stub cdylib + host producer per target and package the @abitious/<triple>.
   build:
+    name: Build (${{ matrix.triple }})
     needs: prepare
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # No `cache:` input is set, so setup-node does not cache here; the release-trigger
       # cache-poisoning heuristic is a low-confidence false positive.
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - name: Set up node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
       # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-07-12); keep the
       # `toolchain:` here in lockstep with it. `targets:` adds the matrix cross target.
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master (2026-09-12)
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master (2026-09-12)
         with:
           toolchain: nightly-2026-07-12
           targets: ${{ matrix.rust }}
       # save-if below is the real mitigation (only a push to main populates the shared
       # cache, so a PR or the privileged `release` run can neither poison it nor bake a
       # poisoned entry into a release); the restore-side heuristic is acknowledged here.
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2 # zizmor: ignore[cache-poisoning] (2026-03-12)
+      - name: Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2 # zizmor: ignore[cache-poisoning] (2026-03-12)
         with:
           key: ${{ matrix.triple }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: install musl toolchain (musl targets only)
+      - name: Install the musl toolchain (musl targets only)
         if: ${{ matrix.libc == 'musl' }}
         run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - name: build the generic stub cdylib + the host abi producer
+      - name: Build the generic stub cdylib + the host abi producer
         env:
           RUST_TARGET: ${{ matrix.rust }}
         run: |
           set -euo pipefail
           cargo build -p abitious-decmpfs --release --target "$RUST_TARGET"
+          cargo build -p abitious-bind --release --target "$RUST_TARGET"
           cargo build -p abitious-stub --release --target "$RUST_TARGET"
           cargo build -p abitious --release --target "$RUST_TARGET"
-      - name: stage the @abitious/${{ matrix.triple }} package
+      - name: Stage the @abitious/${{ matrix.triple }} package
         env:
           TRIPLE: ${{ matrix.triple }}
           RUST_TARGET: ${{ matrix.rust }}
           STUB_ARTIFACT: ${{ matrix.stubArtifact }}
+          BIND_ARTIFACT: ${{ matrix.bindArtifact }}
           FFI_ARTIFACT: ${{ matrix.ffiArtifact }}
           BIN: ${{ matrix.bin }}
         run: |
@@ -172,10 +187,12 @@ jobs:
           dest="npm/${TRIPLE}"
           out="target/${RUST_TARGET}/release"
           cp "${out}/${STUB_ARTIFACT}" "${dest}/stub.node"
+          cp "${out}/${BIND_ARTIFACT}" "${dest}/bind.node"
           cp "${out}/${FFI_ARTIFACT}" "${dest}/${FFI_ARTIFACT}"
           cp "${out}/${BIN}" "${dest}/${BIN}"
           ls -la "${dest}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (2026-04-10)
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (2026-04-10)
         with:
           name: abitious-${{ matrix.triple }}
           path: npm/${{ matrix.triple }}
