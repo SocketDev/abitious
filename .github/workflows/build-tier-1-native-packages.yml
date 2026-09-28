@@ -42,7 +42,7 @@ on:
       - 'pnpm-workspace.yaml'
       - 'pnpm-lock.yaml'
       - 'tsconfig.json'
-      - '.github/workflows/build.yml'
+      - '.github/workflows/build-tier-1-native-packages.yml'
   pull_request:
     paths:
       - 'Cargo.toml'
@@ -54,8 +54,13 @@ on:
       - 'pnpm-workspace.yaml'
       - 'pnpm-lock.yaml'
       - 'tsconfig.json'
-      - '.github/workflows/build.yml'
+      - '.github/workflows/build-tier-1-native-packages.yml'
   workflow_dispatch:
+    inputs:
+      all-targets:
+        description: 'Build every target from targets.mts (release set), not just tier-1.'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -124,7 +129,11 @@ jobs:
         name: Derive the tier-1 matrix from targets.mts
         run: |
           set -euo pipefail
-          matrix="$(node scripts/repo/gen-packages.mts --print-matrix)"
+          if [ "${{ inputs.all-targets }}" = "true" ]; then
+            matrix="$(node scripts/repo/gen-packages.mts --print-matrix-all)"
+          else
+            matrix="$(node scripts/repo/gen-packages.mts --print-matrix)"
+          fi
           echo "matrix={\"include\":${matrix}}" >> "$GITHUB_OUTPUT"
 
   # Cross-build the stub cdylib + host producer per target and package the @abitious/<triple>.
@@ -164,6 +173,18 @@ jobs:
       - name: Install the musl toolchain (musl targets only)
         if: ${{ matrix.libc == 'musl' }}
         run: sudo apt-get update && sudo apt-get install -y musl-tools
+      # The binder links node.lib (the node.exe import library) on Windows - the win-<arch>
+      # dist folders publish it beside node.exe. Node version comes from setup-node.
+      - name: Download node.lib (Windows targets only)
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          $v = (node -p process.version)
+          $arch = if ("${{ matrix.cpu }}" -eq "arm64") { "arm64" } else { "x64" }
+          $dir = "${{ github.workspace }}/.cache/node-lib"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Invoke-WebRequest -Uri "https://nodejs.org/dist/$v/win-$arch/node.lib" -OutFile "$dir/node.lib"
+          "NODE_LIB_DIR=$dir" | Add-Content $env:GITHUB_ENV
       - name: Build the generic stub cdylib + the host abi producer
         env:
           RUST_TARGET: ${{ matrix.rust }}
