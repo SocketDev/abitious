@@ -52,8 +52,8 @@
 // builds and `cargo test` are unaffected.
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
-mod inject;
 pub mod ffi;
+mod inject;
 mod outcome;
 pub mod selfextract;
 
