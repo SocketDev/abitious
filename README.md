@@ -25,6 +25,14 @@ Both paths read **one frozen section format** - see
 format `decmpfs` reads (`unwrap_if_hybrid`) and `socket-btm` produces, so the
 whole ecosystem interoperates.
 
+The platform package also ships a small C ABI over the `decmpfs` filesystem
+engine. `@abitious/cli` resolves its library as `ffi`; consumers can call
+`abitious_probe`, `abitious_stat`, and `abitious_compress_file` through a native
+FFI implementation. Node's built-in FFI is experimental and may need to be
+enabled by the host runtime. The package reports `nativeFfi` when Node exposes
+`node:ffi` or `node:smol-ffi`; otherwise the library path remains available for
+another FFI binding.
+
 ## Install
 
 ```sh

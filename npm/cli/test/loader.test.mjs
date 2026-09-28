@@ -32,10 +32,38 @@ test('abiSuffix covers every host abi', () => {
   assert.equal(abiSuffix('linux', undefined), '-musl')
 })
 
-test('loadNativeFfi detects supported builtin names in priority order', () => {
-  const builtin = { dlopen: () => {} }
+test('loadNativeFfi opens the library through supported builtins in order', () => {
+  let closed = false
+  const functions = {
+    abitious_probe: filePath => (filePath === '/supported' ? 0 : 2),
+    abitious_stat(filePath, compressed, logical, physical) {
+      assert.equal(filePath, '/file')
+      compressed[0] = 1
+      logical.writeBigUInt64LE(123n)
+      physical.writeBigUInt64LE(45n)
+      return 0
+    },
+    abitious_compress_file(filePath, before, after) {
+      assert.equal(filePath, '/file')
+      before.writeBigUInt64LE(123n)
+      after.writeBigUInt64LE(45n)
+      return 0
+    },
+  }
+  const builtin = {
+    dlopen(libraryPath, definitions) {
+      assert.equal(libraryPath, '/library')
+      assert.deepEqual(Object.keys(definitions), [
+        'abitious_probe',
+        'abitious_stat',
+        'abitious_compress_file',
+      ])
+      return { functions, lib: { close: () => (closed = true) } }
+    },
+  }
   const seen = []
   const result = loadNativeFfi({
+    libraryPath: '/library',
     getBuiltinModule(name) {
       seen.push(name)
       return name === 'node:smol-ffi' ? builtin : undefined
@@ -45,6 +73,21 @@ test('loadNativeFfi detects supported builtin names in priority order', () => {
   assert.equal(result.name, 'node:smol-ffi')
   assert.equal(result.module, builtin)
   assert.deepEqual(seen, ['node:ffi', 'node:smol-ffi'])
+  assert.equal(result.probe('/supported'), 0)
+  assert.deepEqual(result.inspect('/file'), {
+    __proto__: null,
+    compressed: true,
+    logical: 123n,
+    physical: 45n,
+  })
+  assert.deepEqual(result.compressFile('/file'), {
+    __proto__: null,
+    status: 0,
+    before: 123n,
+    after: 45n,
+  })
+  result.close()
+  assert.equal(closed, true)
 })
 
 test('loadNativeFfi treats absent APIs and rejected builtins as unsupported', () => {
@@ -54,6 +97,7 @@ test('loadNativeFfi treats absent APIs and rejected builtins as unsupported', ()
       getBuiltinModule() {
         throw new Error('not available')
       },
+      libraryPath: '/library',
     }),
     undefined,
   )
@@ -128,6 +172,10 @@ test('resolvePlatform returns the stub + bin paths from the resolved package dir
   assert.equal(resolved.pkg, '@abitious/darwin-arm64')
   assert.equal(resolved.dir, path.dirname(fakeManifest))
   assert.equal(resolved.stub, path.join(resolved.dir, 'stub.node'))
+  assert.equal(
+    resolved.ffi,
+    path.join(resolved.dir, 'libabitious_decmpfs.dylib'),
+  )
   assert.equal(resolved.bin, path.join(resolved.dir, 'abi'))
   assert.deepEqual(seen, ['@abitious/darwin-arm64/package.json'])
 })

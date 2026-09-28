@@ -53,6 +53,7 @@
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
 mod inject;
+pub mod ffi;
 mod outcome;
 pub mod selfextract;
 

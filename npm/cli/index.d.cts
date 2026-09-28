@@ -22,6 +22,10 @@ export interface PlatformResolution {
    */
   stub: string
   /**
+   * Absolute path to the platform decmpfs C ABI library.
+   */
+  ffi: string
+  /**
    * Absolute path to the host `abi` producer binary (`abi.exe` on Windows).
    */
   bin: string
@@ -33,6 +37,22 @@ export interface PlatformResolution {
 export interface NativeFfiResolution {
   name: 'node:ffi' | 'node:smol-ffi'
   module: Record<string, unknown>
+  probe(path: string): number
+  inspect(path: string): NativeFfiStat
+  compressFile(path: string): NativeFfiCompression
+  close(): void
+}
+
+export interface NativeFfiStat {
+  compressed: boolean
+  logical: bigint
+  physical: bigint
+}
+
+export interface NativeFfiCompression {
+  status: 0 | 1 | 2 | 3 | 4
+  before: bigint
+  after: bigint
 }
 
 /**
@@ -71,6 +91,7 @@ export interface SupportedTarget {
   cpu: string
   libc?: string | undefined
   bin: string
+  ffiArtifact: string
 }
 
 /**
@@ -101,7 +122,7 @@ export function resolvePlatform(
 /**
  * Resolve using the real `process` + `require.resolve`.
  */
-export function loadPlatform(): PlatformResolution
+export function loadPlatform(): AbitiousRuntime
 
 /**
  * The supported targets (from targets.generated.json).

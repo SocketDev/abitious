@@ -20,7 +20,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { abiBin, STUB_NODE, stubArtifact, TARGETS } from './targets.mts'
+import {
+  abiBin,
+  ffiArtifact,
+  STUB_NODE,
+  stubArtifact,
+  TARGETS,
+} from './targets.mts'
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(scriptsDir, '..', '..')
@@ -60,7 +66,7 @@ function platformPackage(triple: string): unknown {
   return {
     name: `@abitious/${triple}`,
     version: VERSION,
-    description: `abitious prebuilt stub + host \`abi\` producer for ${triple}.`,
+    description: `abitious prebuilt stub, FFI library, and host \`abi\` producer for ${triple}.`,
     license: LICENSE,
     repository: REPOSITORY,
     engines: ENGINES,
@@ -69,7 +75,7 @@ function platformPackage(triple: string): unknown {
     ...(target.libc ? { libc: [target.libc] } : {}),
     // Build-time artifacts, not a runtime addon: no `main`. The loader
     // (npm/cli/index.cjs) resolves these files by name.
-    files: [STUB_NODE, bin, 'README.md'].toSorted(),
+    files: [STUB_NODE, bin, ffiArtifact(target.os), 'README.md'].toSorted(),
     publishConfig: PUBLISH_CONFIG,
   }
 }
@@ -91,16 +97,19 @@ function optionalDependencies(): Record<string, string> {
  */
 function loaderData(): unknown {
   return {
+    __proto__: null,
     // A banner so a reader of the JSON knows it is generated.
     _generated:
       'scripts/repo/gen-packages.mts from scripts/repo/targets.mts — do not edit',
     stubNode: STUB_NODE,
     targets: TARGETS.map(t => ({
+      __proto__: null,
       triple: t.triple,
       os: t.os,
       cpu: t.cpu,
       ...(t.libc ? { libc: t.libc } : {}),
       bin: abiBin(t.os),
+      ffiArtifact: ffiArtifact(t.os),
     })),
   }
 }
@@ -117,6 +126,7 @@ function loaderData(): unknown {
  */
 function matrix(all = false): unknown[] {
   return TARGETS.filter(t => all || t.tier1).map(t => ({
+    __proto__: null,
     triple: t.triple,
     os: t.os,
     cpu: t.cpu,
@@ -125,6 +135,7 @@ function matrix(all = false): unknown[] {
     runner: t.runner,
     stubArtifact: stubArtifact(t.os),
     bin: abiBin(t.os),
+    ffiArtifact: ffiArtifact(t.os),
   }))
 }
 

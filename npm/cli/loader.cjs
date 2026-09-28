@@ -51,18 +51,76 @@ function hostTriple({ platform, arch, report }) {
 /**
  * Resolve using the real process + require.resolve (npm/cli/index.cjs entry).
  */
-function loadNativeFfi({ getBuiltinModule = process.getBuiltinModule } = {}) {
+function loadNativeFfi({
+  getBuiltinModule = process.getBuiltinModule,
+  libraryPath,
+} = {}) {
   if (typeof getBuiltinModule !== 'function') {
     return undefined
   }
   for (const name of ['node:ffi', 'node:smol-ffi']) {
     try {
       const module = getBuiltinModule(name)
-      if (module) {
-        return { __proto__: null, name, module }
+      if (!module || typeof module.dlopen !== 'function' || !libraryPath) {
+        continue
+      }
+      const library = module.dlopen(libraryPath, {
+        abitious_probe: { arguments: ['string'], return: 'int32' },
+        abitious_stat: {
+          arguments: ['string', 'buffer', 'buffer', 'buffer'],
+          return: 'int32',
+        },
+        abitious_compress_file: {
+          arguments: ['string', 'buffer', 'buffer'],
+          return: 'int32',
+        },
+      })
+      const { functions } = library
+      return {
+        __proto__: null,
+        name,
+        module,
+        probe(path) {
+          return functions.abitious_probe(path)
+        },
+        inspect(path) {
+          const compressed = Buffer.alloc(1)
+          const logical = Buffer.alloc(8)
+          const physical = Buffer.alloc(8)
+          if (
+            functions.abitious_stat(path, compressed, logical, physical) !== 0
+          ) {
+            throw new Error(`abitious: filesystem stat failed for ${path}`)
+          }
+          return {
+            __proto__: null,
+            compressed: compressed[0] !== 0,
+            logical: logical.readBigUInt64LE(),
+            physical: physical.readBigUInt64LE(),
+          }
+        },
+        compressFile(path) {
+          const before = Buffer.alloc(8)
+          const after = Buffer.alloc(8)
+          const status = functions.abitious_compress_file(path, before, after)
+          if (status < 0) {
+            throw new Error(
+              `abitious: filesystem compression failed for ${path}`,
+            )
+          }
+          return {
+            __proto__: null,
+            status,
+            before: before.readBigUInt64LE(),
+            after: after.readBigUInt64LE(),
+          }
+        },
+        close() {
+          library.lib.close()
+        },
       }
     } catch {
-      // An unavailable experimental builtin is a normal feature-detection miss.
+      // A missing builtin, library, or symbol is a normal feature-detection miss.
     }
   }
   return undefined
@@ -75,12 +133,17 @@ function loadPlatform() {
     typeof process.report?.getReport === 'function'
       ? process.report.getReport()
       : undefined
-  return resolvePlatform({
+  const platform = resolvePlatform({
     platform: process.platform,
     arch: process.arch,
     report,
     resolve: request => req.resolve(request),
   })
+  return {
+    __proto__: null,
+    ...platform,
+    nativeFfi: loadNativeFfi({ libraryPath: platform.ffi }),
+  }
 }
 
 /**
@@ -120,6 +183,7 @@ function resolvePlatform({ platform, arch, report, resolve }) {
     pkg,
     dir,
     stub: join(dir, STUB_NODE),
+    ffi: join(dir, entry.ffiArtifact),
     bin: join(dir, entry.bin),
   }
 }

@@ -156,6 +156,7 @@ jobs:
           RUST_TARGET: ${{ matrix.rust }}
         run: |
           set -euo pipefail
+          cargo build -p abitious-decmpfs --release --target "$RUST_TARGET"
           cargo build -p abitious-stub --release --target "$RUST_TARGET"
           cargo build -p abitious --release --target "$RUST_TARGET"
       - name: stage the @abitious/${{ matrix.triple }} package
@@ -163,6 +164,7 @@ jobs:
           TRIPLE: ${{ matrix.triple }}
           RUST_TARGET: ${{ matrix.rust }}
           STUB_ARTIFACT: ${{ matrix.stubArtifact }}
+          FFI_ARTIFACT: ${{ matrix.ffiArtifact }}
           BIN: ${{ matrix.bin }}
         run: |
           set -euo pipefail
@@ -170,6 +172,7 @@ jobs:
           dest="npm/${TRIPLE}"
           out="target/${RUST_TARGET}/release"
           cp "${out}/${STUB_ARTIFACT}" "${dest}/stub.node"
+          cp "${out}/${FFI_ARTIFACT}" "${dest}/${FFI_ARTIFACT}"
           cp "${out}/${BIN}" "${dest}/${BIN}"
           ls -la "${dest}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (2026-04-10)

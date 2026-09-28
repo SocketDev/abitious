@@ -1,7 +1,7 @@
 {
   "name": "@abitious/linux-x64-musl",
   "version": "0.1.0",
-  "description": "abitious prebuilt stub + host `abi` producer for linux-x64-musl.",
+  "description": "abitious prebuilt stub, FFI library, and host `abi` producer for linux-x64-musl.",
   "license": "MIT",
   "repository": "https://github.com/SocketDev/abitious",
   "engines": {
@@ -19,6 +19,7 @@
   "files": [
     "README.md",
     "abi",
+    "libabitious_decmpfs.so",
     "stub.node"
   ],
   "publishConfig": {

@@ -1,7 +1,7 @@
 {
   "name": "@abitious/win32-arm64-msvc",
   "version": "0.1.0",
-  "description": "abitious prebuilt stub + host `abi` producer for win32-arm64-msvc.",
+  "description": "abitious prebuilt stub, FFI library, and host `abi` producer for win32-arm64-msvc.",
   "license": "MIT",
   "repository": "https://github.com/SocketDev/abitious",
   "engines": {
@@ -16,6 +16,7 @@
   "files": [
     "README.md",
     "abi.exe",
+    "abitious_decmpfs.dll",
     "stub.node"
   ],
   "publishConfig": {

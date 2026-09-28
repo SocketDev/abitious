@@ -9,6 +9,9 @@ homepage.workspace = true
 keywords = ["napi", "addon", "compression", "decmpfs", "zstd"]
 categories = ["compression", "development-tools"]
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
 [features]
 # Off by default so the reader/ABI dependency tree stays dep-lean: with default
 # features `cargo tree -e normal` shows NO reqwest/tokio/hyper. Producers enable

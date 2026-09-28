@@ -6,53 +6,61 @@
       "triple": "darwin-arm64",
       "os": "darwin",
       "cpu": "arm64",
-      "bin": "abi"
+      "bin": "abi",
+      "ffiArtifact": "libabitious_decmpfs.dylib"
     },
     {
       "triple": "darwin-x64",
       "os": "darwin",
       "cpu": "x64",
-      "bin": "abi"
+      "bin": "abi",
+      "ffiArtifact": "libabitious_decmpfs.dylib"
     },
     {
       "triple": "linux-x64-gnu",
       "os": "linux",
       "cpu": "x64",
       "libc": "glibc",
-      "bin": "abi"
+      "bin": "abi",
+      "ffiArtifact": "libabitious_decmpfs.so"
     },
     {
       "triple": "linux-arm64-gnu",
       "os": "linux",
       "cpu": "arm64",
       "libc": "glibc",
-      "bin": "abi"
+      "bin": "abi",
+      "ffiArtifact": "libabitious_decmpfs.so"
     },
     {
       "triple": "linux-x64-musl",
       "os": "linux",
       "cpu": "x64",
       "libc": "musl",
-      "bin": "abi"
+      "bin": "abi",
+      "ffiArtifact": "libabitious_decmpfs.so"
     },
     {
       "triple": "linux-arm64-musl",
       "os": "linux",
       "cpu": "arm64",
       "libc": "musl",
-      "bin": "abi"
+      "bin": "abi",
+      "ffiArtifact": "libabitious_decmpfs.so"
     },
     {
       "triple": "win32-x64-msvc",
       "os": "win32",
       "cpu": "x64",
-      "bin": "abi.exe"
+      "bin": "abi.exe",
+      "ffiArtifact": "abitious_decmpfs.dll"
     },
     {
       "triple": "win32-arm64-msvc",
       "os": "win32",
       "cpu": "arm64",
-      "bin": "abi.exe"
+      "bin": "abi.exe",
+      "ffiArtifact": "abitious_decmpfs.dll"
     }
   ]
 }

@@ -16,7 +16,7 @@
 // explicit: glibc Linux is `-gnu`, musl Linux is `-musl`, Windows is `-msvc`,
 // macOS none. The abi must be in the name because a native artifact built against
 // one C library cannot load on another, and glibc/musl hosts genuinely coexist.
-// `libc` is also emitted as the npm install gate.
+// `libc` is also emitted as the npm `install` gate.
 
 export interface Target {
   /**
@@ -146,6 +146,20 @@ export function stubArtifact(os: string): string {
  * The prebuilt stub `.node` filename inside each @abitious/<triple> package.
  */
 export const STUB_NODE = 'stub.node'
+
+/**
+ * The packaged native FFI library filename for a platform.
+ */
+export function ffiArtifact(os: string): string {
+  switch (os) {
+    case 'darwin':
+      return 'libabitious_decmpfs.dylib'
+    case 'win32':
+      return 'abitious_decmpfs.dll'
+    default:
+      return 'libabitious_decmpfs.so'
+  }
+}
 
 /**
  * The host `abi` CLI binary name inside each package (`.exe` on Windows).
