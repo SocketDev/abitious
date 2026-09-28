@@ -2078,10 +2078,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.5.1
-    devDependencies:
-      '@types/node':
-        specifier: 'catalog:'
-        version: 26.5.1
 
   .claude/hooks/fleet/no-pr-from-default-checkout-guard:
     devDependencies:
