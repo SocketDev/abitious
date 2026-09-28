@@ -125,7 +125,7 @@ pub unsafe extern "C" fn napi_register_module_v1(env: NapiEnv, exports: NapiValu
 unsafe fn arg_string(env: NapiEnv, info: NapiCallbackInfo) -> Option<String> {
     // SAFETY: `env`/`info` are Node's live pointers; `argv` is sized to the one arg read.
     unsafe {
-    let mut argc: usize = 1;
+        let mut argc: usize = 1;
         let mut argv: NapiValue = std::ptr::null_mut();
         if napi_get_cb_info(
             env,
@@ -150,7 +150,8 @@ unsafe fn arg_string(env: NapiEnv, info: NapiCallbackInfo) -> Option<String> {
             return None;
         }
         let mut buf = vec![0u8; len + 1];
-        if napi_get_value_string_utf8(env, argv, buf.as_mut_ptr().cast(), buf.len(), &mut len) != 0 {
+        if napi_get_value_string_utf8(env, argv, buf.as_mut_ptr().cast(), buf.len(), &mut len) != 0
+        {
             return None;
         }
         buf.truncate(len);
@@ -225,10 +226,7 @@ unsafe extern "C" fn js_compress_file(env: NapiEnv, info: NapiCallbackInfo) -> N
         let Some(object) = shape(
             env,
             status,
-            &[
-                ("before", Field::U64(before)),
-                ("after", Field::U64(after)),
-            ],
+            &[("before", Field::U64(before)), ("after", Field::U64(after))],
         ) else {
             return fail_soft_undefined(env);
         };
@@ -265,7 +263,7 @@ unsafe fn shape(env: NapiEnv, status: i32, fields: &[(&str, Field)]) -> Option<N
             let mut value: NapiValue = std::ptr::null_mut();
             let ok = match field {
                 Field::Bool(b) => napi_get_boolean(env, *b, &mut value),
-                Field::U64(n) => napi_create_bigint_uint64(env, *n, &mut value)
+                Field::U64(n) => napi_create_bigint_uint64(env, *n, &mut value),
             };
             if ok != 0 {
                 return None;
@@ -342,8 +340,7 @@ mod tests {
 
     #[test]
     fn compress_error_maps_to_the_failure_shape() {
-        let measured =
-            decmpfs::compress_file(Path::new("/nonexistent-parent-dir/file.node")).ok();
+        let measured = decmpfs::compress_file(Path::new("/nonexistent-parent-dir/file.node")).ok();
         let (status, before, after) = match measured {
             Some(Outcome::Compressed { before, after }) => (0, before, after),
             Some(Outcome::NoGain { before, after }) => (1, before, after),

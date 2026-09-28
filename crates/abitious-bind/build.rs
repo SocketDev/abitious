@@ -16,9 +16,13 @@ fn main() {
             println!("cargo:rustc-link-arg=-Wl,-undefined,dynamic_lookup");
         }
         "windows" => {
-            let lib_dir = std::env::var_os("NODE_LIB_DIR")
-                .expect("NODE_LIB_DIR must point at the folder holding node.lib for the target arch");
-            println!("cargo:rustc-link-search=native={}", lib_dir.to_string_lossy());
+            let lib_dir = std::env::var_os("NODE_LIB_DIR").expect(
+                "NODE_LIB_DIR must point at the folder holding node.lib for the target arch",
+            );
+            println!(
+                "cargo:rustc-link-search=native={}",
+                lib_dir.to_string_lossy()
+            );
             println!("cargo:rustc-link-lib=dylib=node");
         }
         // Linux and friends: nothing to do.
