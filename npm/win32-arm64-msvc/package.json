@@ -17,6 +17,7 @@
     "README.md",
     "abi.exe",
     "abitious_decmpfs.dll",
+    "bind.node",
     "stub.node"
   ],
   "publishConfig": {

@@ -1,7 +1,7 @@
 // Unit tests for the codegen (scripts/repo/gen-packages.mts) — the single-source-of-truth
 // discipline: --check must report in-sync (proving the committed generated files match
 // targets.mts), and --print-matrix must derive the CI matrix from the same list with
-// darwin targets on macOS runners. Run: pnpm test npm/cli/test/codegen.test.mjs.
+// darwin targets on macOS runners. Run: `pnpm test` npm/cli/test/codegen.test.mjs.
 
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'

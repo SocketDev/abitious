@@ -29,9 +29,19 @@ The platform package also ships a small C ABI over the `decmpfs` filesystem
 engine. `@abitious/cli` resolves its library as `ffi`; consumers can call
 `abitious_probe`, `abitious_stat`, and `abitious_compress_file` through a native
 FFI implementation. Node's built-in FFI is experimental and may need to be
-enabled by the host runtime. The package reports `nativeFfi` when Node exposes
-`node:ffi` or `node:smol-ffi`; otherwise the library path remains available for
-another FFI binding.
+enabled by the host runtime.
+
+`@abitious/cli` picks the first in-process surface the runtime offers:
+
+1. `node:ffi` — Node 26+ (flag-gated: `--experimental-ffi`), calling the C ABI
+   above.
+2. `node:smol-ffi` — where exposed.
+3. `bind.node` — the prebuilt binder addon in the same platform package
+   (`@abitious/<triple>`), linking the `decmpfs` engine directly. Covers Node 24
+   and older, no flags.
+4. Otherwise `nativeFfi` is `undefined` and the library path remains available
+   for another FFI binding; the `abi` producer binary keeps working on every
+   runtime.
 
 ## Install
 

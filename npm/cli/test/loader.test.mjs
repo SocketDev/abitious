@@ -4,16 +4,20 @@
 // off-host with zero installs. Run: `pnpm test npm/cli/test/loader.test.mjs`.
 
 import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 
 import { test } from 'vitest'
+import { safeDeleteSync } from '@socketsecurity/lib-stable/fs/safe'
 
 const require = createRequire(import.meta.url)
 const loader = require('../loader.cjs')
 const {
   abiSuffix,
   hostTriple,
+  loadBindFfi,
   loadNativeFfi,
   loadPlatform,
   resolvePlatform,
@@ -231,6 +235,101 @@ test('resolvePlatform rejects an unsupported host, listing what is supported', (
   )
 })
 
+test('loadBindFfi loads a bind.node surface and mirrors the C-FFI shapes', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'bind-fake-'))
+  const pkgDir = path.join(dir, '@abitious', 'darwin-arm64')
+  mkdirSync(pkgDir, { recursive: true })
+  const modPath = path.join(pkgDir, 'bind.node.js')
+  writeFileSync(
+    modPath,
+    [
+      'module.exports = {',
+      "  probe: (p) => (p === '/supported' ? 0 : 2),",
+      '  stat(p) {',
+      '    void p',
+      "    const ok = p === '/file'",
+      '    return { __proto__: null, status: ok ? 0 : -1, compressed: true, logical: 123n, physical: 45n }',
+      '  },',
+      '  compressFile() {',
+      '    return { __proto__: null, status: 0, before: 123n, after: 45n }',
+      '  },',
+      '}',
+    ].join('\n'),
+  )
+  const bound = loadBindFfi({ bindPath: modPath })
+  assert.equal(bound.name, 'napi-bind')
+  assert.equal(bound.probe('/supported'), 0)
+  assert.equal(bound.probe('/unsupported'), 2)
+  assert.deepEqual(bound.inspect('/file'), {
+    __proto__: null,
+    compressed: true,
+    logical: 123n,
+    physical: 45n,
+  })
+  assert.throws(() => bound.inspect('/failing'), /filesystem stat failed/)
+  assert.deepEqual(bound.compressFile('/file'), {
+    __proto__: null,
+    status: 0,
+    before: 123n,
+    after: 45n,
+  })
+  bound.close()
+  safeDeleteSync(dir)
+})
+
+test('loadBindFfi rejects a surface missing any of the three functions', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'bind-partial-'))
+  const pkgDir = path.join(dir, '@abitious', 'darwin-arm64')
+  mkdirSync(pkgDir, { recursive: true })
+  const modPath = path.join(pkgDir, 'bind.node.js')
+  writeFileSync(modPath, 'module.exports = { probe: () => 0 }')
+  assert.equal(loadBindFfi({ bindPath: modPath }), undefined)
+  assert.equal(
+    loadBindFfi({ bindPath: path.join(dir, 'absent.node.js') }),
+    undefined,
+  )
+  safeDeleteSync(dir)
+})
+test('loadPlatform prefers builtins, then the binder', () => {
+  const seen = []
+  const bindSurface = {
+    __proto__: null,
+    name: 'napi-bind',
+    probe: () => 0,
+  }
+  // Builtins present: node:ffi wins, the binder is never consulted.
+  const withBuiltin = loadPlatform({
+    report: GLIBC,
+    resolve: request => `/sandbox/${request}`,
+    getBuiltinModule: name => {
+      seen.push(name)
+      return name === 'node:ffi'
+        ? { dlopen: () => ({ functions: {}, lib: { close: () => {} } }) }
+        : undefined
+    },
+  })
+  assert.equal(withBuiltin.nativeFfi.name, 'node:ffi')
+  assert.deepEqual(seen, ['node:ffi'])
+
+  // Builtins absent: the binder answers through the platform package's bind path.
+  let requested
+  const withBind = loadPlatform({
+    report: GLIBC,
+    resolve: request => `/sandbox/${request}`,
+    getBuiltinModule: () => undefined,
+    loadBind: ({ bindPath } = {}) => {
+      requested = bindPath
+      return bindSurface
+    },
+  })
+  assert.equal(withBind.nativeFfi.name, 'napi-bind')
+  assert.equal(
+    requested,
+    `/sandbox//package.json`
+      .replace('//package.json', '/@abitious/darwin-arm64/bind.node')
+      .replace('/sandbox/', '/sandbox/'),
+  )
+})
 test('loadPlatform wires the real process (process.report) + require.resolve', () => {
   // The production entry: it reads process.report.getReport() (the glibc-detection wiring on
   // Linux) and require.resolve()s THIS host's @abitious package. The optional dep is not

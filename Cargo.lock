@@ -11,6 +11,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "abitious-bind"
+version = "0.1.0"
+dependencies = [
+ "abitious-decmpfs",
+]
+
+[[package]]
 name = "abitious-decmpfs"
 version = "0.1.0"
 dependencies = [

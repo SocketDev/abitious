@@ -1,6 +1,7 @@
 {
   "_generated": "scripts/repo/gen-packages.mts from scripts/repo/targets.mts — do not edit",
   "stubNode": "stub.node",
+  "bindNode": "bind.node",
   "targets": [
     {
       "triple": "darwin-arm64",

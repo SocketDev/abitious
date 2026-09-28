@@ -22,6 +22,8 @@ import { fileURLToPath } from 'node:url'
 
 import {
   abiBin,
+  BIND_NODE,
+  bindArtifact,
   ffiArtifact,
   STUB_NODE,
   stubArtifact,
@@ -75,7 +77,13 @@ function platformPackage(triple: string): unknown {
     ...(target.libc ? { libc: [target.libc] } : {}),
     // Build-time artifacts, not a runtime addon: no `main`. The loader
     // (npm/cli/index.cjs) resolves these files by name.
-    files: [STUB_NODE, bin, ffiArtifact(target.os), 'README.md'].toSorted(),
+    files: [
+      STUB_NODE,
+      BIND_NODE,
+      bin,
+      ffiArtifact(target.os),
+      'README.md',
+    ].toSorted(),
     publishConfig: PUBLISH_CONFIG,
   }
 }
@@ -102,6 +110,7 @@ function loaderData(): unknown {
     _generated:
       'scripts/repo/gen-packages.mts from scripts/repo/targets.mts — do not edit',
     stubNode: STUB_NODE,
+    bindNode: BIND_NODE,
     targets: TARGETS.map(t => ({
       __proto__: null,
       triple: t.triple,
@@ -134,6 +143,7 @@ function matrix(all = false): unknown[] {
     rust: t.rust,
     runner: t.runner,
     stubArtifact: stubArtifact(t.os),
+    bindArtifact: bindArtifact(t.os),
     bin: abiBin(t.os),
     ffiArtifact: ffiArtifact(t.os),
   }))

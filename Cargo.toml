@@ -8,6 +8,7 @@
 resolver = "2"
 members = [
   "crates/abitious-decmpfs",
+  "crates/abitious-bind",
   "crates/abitious-stub",
   "crates/abitious-producer",
   "crates/abitious",

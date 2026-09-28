@@ -1,0 +1,32 @@
+[package]
+name = "abitious-bind"
+description = "The abitious in-process binder: a cdylib .node addon exposing the decmpfs engine (probe, stat, compressFile) as native Node functions, so runtimes without node:ffi (Node 24 and older) get the same in-process surface."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["napi", "addon", "compression", "ffi", "bind"]
+categories = ["development-tools"]
+
+# ONE prebuilt binder cdylib ships per platform/arch as `bind.node` inside each
+# @abitious/<triple> package. Unlike the stub it CALLS napi host functions (value
+# creation), which resolve from the Node process at dlopen - no headers, no
+# napi-rs CLI, no linked runtime.
+[lib]
+crate-type = ["cdylib"]
+
+[lints.rust]
+# `coverage` / `coverage_nightly` are set by cargo-llvm-cov (nightly) to gate the
+# `#[coverage(off)]` markers on the dlopen-only entry + napi shims; declare them so
+# stable builds don't warn.
+unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(coverage)',
+  'cfg(coverage_nightly)',
+] }
+
+# The binder links ONLY the dep-lean reader/ABI (default features - NO resign, so no
+# apple-codesign/reqwest/tokio/hyper). No libc/windows-sys: the napi surface is pure
+# declared externs resolved from the host.
+[dependencies]
+abitious-decmpfs = { workspace = true }

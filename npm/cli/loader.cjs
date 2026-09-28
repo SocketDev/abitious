@@ -18,6 +18,7 @@ const DATA = require('./targets.generated.json')
 
 const SUPPORTED = DATA.targets
 const STUB_NODE = DATA.stubNode
+const BIND_NODE = DATA.bindNode
 
 /**
  * The napi-rs addon abi suffix for a host: glibc Linux `-gnu`, musl Linux
@@ -46,6 +47,62 @@ function abiSuffix(platform, report) {
  */
 function hostTriple({ platform, arch, report }) {
   return `${platform}-${arch}${abiSuffix(platform, report)}`
+}
+
+// The in-process binder fallback: require the platform package's `bind.node`.
+// Same surface the C-FFI wrapper builds, so consumers see one contract either way.
+function loadBindFfi({ bindPath } = {}) {
+  if (!bindPath) {
+    return undefined
+  }
+  try {
+    const bind = require(bindPath)
+    if (
+      typeof bind.probe !== 'function' ||
+      typeof bind.stat !== 'function' ||
+      typeof bind.compressFile !== 'function'
+    ) {
+      return undefined
+    }
+    return {
+      __proto__: null,
+      name: 'napi-bind',
+      module: bind,
+      probe(path) {
+        return bind.probe(path)
+      },
+      inspect(path) {
+        const { stat: bindStat } = bind
+        const result = bindStat(path)
+        if (result.status !== 0) {
+          throw new Error(`abitious: filesystem stat failed for ${path}`)
+        }
+        return {
+          __proto__: null,
+          compressed: result.compressed,
+          logical: result.logical,
+          physical: result.physical,
+        }
+      },
+      compressFile(path) {
+        const result = bind.compressFile(path)
+        if (result.status < 0) {
+          throw new Error(`abitious: filesystem compression failed for ${path}`)
+        }
+        return {
+          __proto__: null,
+          status: result.status,
+          before: result.before,
+          after: result.after,
+        }
+      },
+      // The binder is stateless per call; nothing to release.
+      close() {},
+    }
+  } catch {
+    // A missing or malformed platform artifact is a normal fallback miss.
+  }
+  return undefined
 }
 
 /**
@@ -126,26 +183,30 @@ function loadNativeFfi({
   return undefined
 }
 
-function loadPlatform() {
-  const { createRequire } = require('node:module')
-  const req = createRequire(__filename)
-  const report =
-    typeof process.report?.getReport === 'function'
-      ? process.report.getReport()
-      : undefined
+const { createRequire } = require('node:module')
+
+function loadPlatform({
+  report = typeof process.report?.getReport === 'function'
+    ? process.report.getReport()
+    : undefined,
+  resolve = request => createRequire(__filename).resolve(request),
+  getBuiltinModule = process.getBuiltinModule,
+  loadBind = loadBindFfi,
+} = {}) {
   const platform = resolvePlatform({
     platform: process.platform,
     arch: process.arch,
     report,
-    resolve: request => req.resolve(request),
+    resolve,
   })
   return {
     __proto__: null,
     ...platform,
-    nativeFfi: loadNativeFfi({ libraryPath: platform.ffi }),
+    nativeFfi:
+      loadNativeFfi({ libraryPath: platform.ffi, getBuiltinModule }) ??
+      loadBind({ bindPath: join(platform.dir, BIND_NODE) }),
   }
 }
-
 /**
  * Resolve the installed platform package for a host and return its paths.
  */
@@ -184,6 +245,7 @@ function resolvePlatform({ platform, arch, report, resolve }) {
     dir,
     stub: join(dir, STUB_NODE),
     ffi: join(dir, entry.ffiArtifact),
+    bind: join(dir, BIND_NODE),
     bin: join(dir, entry.bin),
   }
 }
@@ -194,7 +256,9 @@ module.exports = {
   hostTriple,
   resolvePlatform,
   loadPlatform,
+  loadBindFfi,
   loadNativeFfi,
   SUPPORTED,
   STUB_NODE,
+  BIND_NODE,
 }

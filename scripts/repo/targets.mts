@@ -148,6 +148,29 @@ export function stubArtifact(os: string): string {
 export const STUB_NODE = 'stub.node'
 
 /**
+ * The prebuilt binder `.node` filename inside each @abitious/<triple> package:
+ * the in-process napi surface (probe/stat/compressFile) for runtimes without
+ * node:ffi.
+ */
+export const BIND_NODE = 'bind.node'
+
+/**
+ * The cargo cdylib basename for the in-process binder on `os`. Kept in lockstep
+ * with `abitious-bind`'s `[lib]` (crate name `abitious_bind`, dashes ->
+ * underscores).
+ */
+export function bindArtifact(os: string): string {
+  switch (os) {
+    case 'darwin':
+      return 'libabitious_bind.dylib'
+    case 'win32':
+      return 'abitious_bind.dll'
+    default:
+      return 'libabitious_bind.so'
+  }
+}
+
+/**
  * The packaged native FFI library filename for a platform.
  */
 export function ffiArtifact(os: string): string {
