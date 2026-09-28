@@ -5,8 +5,8 @@ run-name: 'publish: cargo'
 # then repo-owned: customize what + how THIS crate publishes. The cargo analog
 # of publish-npm.yml.
 #
-# Default flow: manual dispatch, DRY-RUN unless `publish: true`; publishes the
-# workspace's publishable crate via the fleet cargo-publish engine using
+# Default flow: manual dispatch; packages and verifies the workspace crate,
+# then publishes it via the fleet cargo-publish engine using
 # crates.io Trusted Publishing (OIDC — id-token: write, no long-lived token)
 # with build provenance. The `cargo-publish` CI environment gates the real,
 # PERMANENT publish (crates.io is yank-only) — configure required reviewers +
@@ -20,10 +20,10 @@ run-name: 'publish: cargo'
 on:
   workflow_dispatch:
     inputs:
-      publish:
-        description: 'Publish for real (false = dry-run, the default).'
-        type: boolean
-        default: false
+      nightly-version:
+        description: 'Planned single-crate X.Y.Z-nightly.YYYYMMDD.N target.'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -31,10 +31,9 @@ permissions:
 jobs:
   publish:
     name: Publish Cargo
-    runs-on: ubuntu-latest
-    # Same-named CI environment: the human-approval + OIDC gate for the
-    # PERMANENT publish; a dry-run is ungated.
-    environment: ${{ inputs.publish == true && 'cargo-publish' || '' }}
+    runs-on: ubuntu-26.04
+    # Human approval + OIDC gate for the permanent publish.
+    environment: cargo-publish
     permissions:
       contents: write # cargo-publish.mts tags + cuts the GitHub release
       id-token: write # crates.io Trusted Publishing (OIDC) + provenance
@@ -55,15 +54,15 @@ jobs:
           git config --local advice.detachedHead false
           git remote remove origin 2>/dev/null || true
           git remote add origin "${SERVER_URL}/${REPOSITORY}"
-          FETCH_ARGS=(--no-tags --prune --depth 1 origin "${TRIGGER_REF}")
+          FETCH_ARGS=(--prune origin "${TRIGGER_REF}")
           if [ -n "${GITHUB_TOKEN}" ]; then
             AUTH_B64="$(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 | tr -d '\n')"
             export GIT_CONFIG_COUNT=1
             export GIT_CONFIG_KEY_0="http.${SERVER_URL}/.extraheader"
             export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${AUTH_B64}"
-            git fetch "${FETCH_ARGS[@]}"
+            git fetch --tags "${FETCH_ARGS[@]}"
           else
-            git fetch "${FETCH_ARGS[@]}"
+            git fetch --tags "${FETCH_ARGS[@]}"
           fi
           git checkout -q --detach FETCH_HEAD
 
@@ -82,21 +81,34 @@ jobs:
         with:
           prefix-key: cargo-publish
           workspaces: .
+      - name: Mint release token for nightly bump
+        if: ${{ inputs.nightly-version != '' }}
+        id: release-app
+        uses: ./.github/actions/fleet/github-release-app-token
+        with:
+          client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
+          private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
       # The fleet's own OIDC exchange, not rust-lang/crates-io-auth-action.
       # Same protocol, no third-party action in the publish path, and nothing
       # to re-pin when upstream retags: that action's floating `v1` tag was
       # deleted out from under our pin.
       - name: 'Authenticate to crates.io'
         id: auth
-        if: ${{ inputs.publish == true }}
         uses: ./.github/actions/fleet/crates-io-auth
       - name: Stage and digest crate
-        run: node scripts/fleet/cargo-publish.mts --staged ${{ inputs.publish != true && '--dry-run' || '' }}
+        env:
+          GH_TOKEN: ${{ inputs.nightly-version != '' && steps.release-app.outputs.token || github.token }}
+          RELEASE_APP_TOKEN: ${{ steps.release-app.outputs.token }}
+          NIGHTLY_VERSION: ${{ inputs.nightly-version }}
+        run: |
+          args=(--staged)
+          if [ -n "$NIGHTLY_VERSION" ]; then args+=(--bump --nightly-version "$NIGHTLY_VERSION"); fi
+          node scripts/fleet/cargo-publish.mts "${args[@]}"
       - name: Approve verified crate
-        if: ${{ inputs.publish == true }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ inputs.nightly-version != '' && steps.release-app.outputs.token || github.token }}
         # The rustup cargo goes AHEAD of the SFW shim for the publish leg:
         # the shim's proxy interposes the crates.io publish PUT (uploads are
         # outside its registry-read bypass), and cargo then fails TLS
@@ -115,7 +127,6 @@ jobs:
           CRATES_IO_TOKEN: ${{ steps.auth.outputs.token }}
         run: node scripts/fleet/registry-infra/crates-io-trusted-token.mts --revoke
       - name: Attest build provenance (.crate)
-        if: ${{ inputs.publish == true }}
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2 (2025-06-11)
         with:
           subject-path: target/package/*.crate
