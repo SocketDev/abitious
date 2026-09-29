@@ -1,5 +1,6 @@
 [package]
 name = "abitious-decmpfs"
+publish = false
 description = "The abitious pressed-data section ABI: build, parse, and locate a compressed-hybrid .node section (mirror of decmpfs's reader)."
 version.workspace = true
 edition.workspace = true
