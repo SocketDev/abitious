@@ -73,9 +73,9 @@
 .github/actions/fleet/_shared linguist-generated=true
 .github/actions/fleet/_shared/resolve-external-tool-asset.generated.mjs linguist-generated=true
 .github/actions/fleet/cache-pnpm-store linguist-generated=true
+.github/actions/fleet/cargo/auth linguist-generated=true
 .github/actions/fleet/checkout linguist-generated=true
 .github/actions/fleet/cleanup-git-signing linguist-generated=true
-.github/actions/fleet/crates-io-auth linguist-generated=true
 .github/actions/fleet/debug linguist-generated=true
 .github/actions/fleet/download-artifact linguist-generated=true
 .github/actions/fleet/expose-actions-runtime linguist-generated=true

@@ -313,6 +313,7 @@
   "ignorePatterns": [
     "**/.agents/**",
     "**/.cache/**",
+    "**/.opencode-tmp/**",
     "**/.claude/**",
     "**/coverage/**",
     "**/coverage-isolated/**",

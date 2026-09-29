@@ -49,7 +49,7 @@
     "strip:ai-tags": "node scripts/fleet/strip-ai-tags.mts",
     "npm:approve": "node scripts/fleet/npm/approve.mts",
     "npm:auth": "node scripts/fleet/npm-auth.mts",
-    "npm:dispatch": "node scripts/fleet/registry-infra/remote-npm-publish.mts",
+    "npm:dispatch": "node scripts/fleet/npm/publish/run.mts",
     "npm:staged": "node scripts/fleet/npm/staged.mts",
     "hide-comments": "node scripts/fleet/hide-comments.mts",
     "ruleset:bypass": "node scripts/fleet/grant-ruleset-bypass.mts",
@@ -140,7 +140,7 @@
     "ai-balancer:savings": "node scripts/fleet/ai-balancer-savings.mts",
     "setup-all": "node scripts/fleet/setup/index.mts",
     "setup:0-mise": "node scripts/fleet/setup/mise.mts --bootstrap",
-    "setup:1-token": "node scripts/fleet/setup/token.mts",
+    "socket:auth": "node scripts/fleet/setup/token.mts",
     "setup:2-security-tools": "node .claude/hooks/fleet/setup-security-tools/install.mts",
     "setup:3-hook-snapshot": "node scripts/fleet/setup/hook-snapshot.mts",
     "setup:4-repo-steps": "node scripts/fleet/setup/repo-steps.mts",
@@ -187,7 +187,7 @@
     "cover:shard": "node scripts/fleet/cover-shard.mts",
     "credentials:migrate": "node scripts/fleet/credentials/migrate.mts",
     "credentials:run": "node scripts/fleet/credentials/run.mts",
-    "crates:auth": "node scripts/fleet/registry-infra/crates-io-browser-auth.mts",
+    "crates:auth": "node scripts/fleet/registry-infra/cargo/auth.mts",
     "doctor:credentials": "node scripts/fleet/credentials/doctor.mts",
     "sweep": "node scripts/fleet/sweep.mts",
     "ai:drive:check": "node scripts/fleet/check/browser-extension-build-current.mts",
@@ -200,7 +200,10 @@
     "test:mid": "node scripts/fleet/test/mid.mts",
     "test:slow": "node scripts/fleet/test/slow.mts",
     "gen:mcp:config": "node scripts/fleet/mcp/config.mts",
-    "npm:approve:browser": "node scripts/fleet/registry-infra/npm/approve-staged-browser.mts"
+    "npm:approve:browser": "node scripts/fleet/registry-infra/npm/approve-staged-browser.mts",
+    "setup:security": "node scripts/fleet/setup/security.mts",
+    "setup:hook-snapshot": "node scripts/fleet/setup/hook-snapshot.mts",
+    "setup:repo-steps": "node scripts/fleet/setup/repo-steps.mts"
   },
   "devDependencies": {
     "@bcoe/v8-coverage": "catalog:",

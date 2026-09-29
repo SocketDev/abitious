@@ -560,7 +560,7 @@ export interface FetchedBundle extends FetchedFiles {
  */
 export declare function ghcrBundleRepo(repo: string): string;
 /**
- * Extract just the release-bundle manifest from the bundle tarball root (the
+ * Extract just the publish-bundle manifest from the bundle tarball root (the
  * tarball ships it beside files/ + segments/), so the GHCR path yields the same
  * on-disk `sourceManifest` file the gh-release path downloads separately.
  */

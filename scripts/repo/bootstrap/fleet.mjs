@@ -17144,7 +17144,7 @@ function refreshFleetPackIgnores(config) {
   const packBlock = [
     packBeginMarker(),
     '# Fleet-pack untrack set — managed by scripts/repo/bootstrap/fleet.mjs.',
-    '# REGENERATED from the release-bundle manifest on every hydrate; stale',
+    '# REGENERATED from the publish-bundle manifest on every hydrate; stale',
     '# entries are pruned. Hand-added ignores belong OUTSIDE these markers.',
     ...HARNESS_ALIAS_PATHS,
     ...sortedRoots,
@@ -17458,7 +17458,7 @@ async function invokeMinimalMain(main, meta) {
 
 /**
  * @file The prebuilt dispatch-launcher variant contract - ONE list of
- *   (platform, arch) → filename shared by the release-bundle producer, which
+ *   (platform, arch) → filename shared by the publish-bundle producer, which
  *   stages CI-built binaries under {@link LAUNCHER_VARIANTS_REL_DIR}, the
  *   dir-mirror skip list so a hydrated binary never reads as drift, and
  *   `build-snapshot-launcher.mts`, which copies a matching prebuilt instead of
@@ -17580,7 +17580,7 @@ var init_predicates = __esmMin(() => {})
  *   mirror EACCESes without the lift. One implementation here — the cascade's
  *   mirror-mode fixer and the member-side generators (build-hook-bundle,
  *   gen/hook-dispatch) all import it, so the lift semantics cannot drift.
- *   `lockFileReadonlySync` is the other half: the release-bundle installer
+ *   `lockFileReadonlySync` is the other half: the publish-bundle installer
  *   places files with a plain `copyFileSync`, so it applies the lock itself
  *   rather than inheriting it from a cascade that never runs on that path.
  */
@@ -17606,7 +17606,7 @@ function liftMirrorLockSync(filePath) {
  * already carries an exec bit so a git-hook shim stays runnable while
  * unwritable, 0o444 otherwise. Same mode choice the cascade's own
  * `mirrorFileMode` makes, expressed sync and with `node:fs` alone so rolldown
- * can inline it into the dep-0 release-bundle installer.
+ * can inline it into the dep-0 publish-bundle installer.
  *
  * Best-effort on purpose: a missing file or a chmod the filesystem refuses
  * leaves the target as it is instead of throwing. The installer locks each
@@ -17704,7 +17704,15 @@ function localTemplateManifests(filesDir, manifest, dest) {
       })
   }
   const conditionalRoot = path.join(path.dirname(filesDir), 'conditional')
-  const roots = [filesDir]
+  const generatedRoot = path.join(
+    path.dirname(filesDir),
+    '..',
+    'generated',
+    'universal',
+  )
+  const roots = existsSync(generatedRoot)
+    ? [generatedRoot, filesDir]
+    : [filesDir]
   if (existsSync(conditionalRoot))
     for (const name of readdirSync(conditionalRoot).toSorted().reverse()) {
       const root = path.join(conditionalRoot, name)
@@ -17776,7 +17784,7 @@ function walkFilesRelative(dir, prefix, out) {
  *
  * The mirror is load-bearing rather than belt-and-braces. A manifest built for
  * a LOCAL template carries no `segments` at all - the segment list is written
- * by the release-bundle producer - so a manifest-only check finds nothing to
+ * by the publish-bundle producer - so a manifest-only check finds nothing to
  * skip on exactly the path where the clobber happens.
  */
 function hybridBundlePaths(manifest) {
@@ -17887,7 +17895,7 @@ function localTemplateFileContent(source, memberPath, templateDir) {
 }
 
 /**
- * True when the release-bundle installer should lock what it places.
+ * True when the publish-bundle installer should lock what it places.
  *
  * Unconditional, matching the cascade's mirror-mode fixer: a file is protected
  * the same way whether a cascade copied it or a bundle install placed it. The
@@ -19866,7 +19874,7 @@ async function pullFleetBundleTarball(config) {
 }
 
 const logger$3 = getDep0Logger()
-const MANIFEST_NAME$1 = 'release-bundle-manifest.json'
+const MANIFEST_NAME$1 = 'publish-bundle-manifest.json'
 /**
  * Derive the GHCR fleet-pack package repo from the gh `owner/repo`. GHCR
  * package paths are lowercase: `SocketDev/socket-wheelhouse` →
@@ -19876,7 +19884,7 @@ function ghcrBundleRepo(repo) {
   return `${repo.toLowerCase()}/fleet-pack`
 }
 /**
- * Extract just the release-bundle manifest from the bundle tarball root (the
+ * Extract just the publish-bundle manifest from the bundle tarball root (the
  * tarball ships it beside files/ + segments/), so the GHCR path yields the same
  * on-disk `sourceManifest` file the gh-release path downloads separately.
  */
@@ -27271,6 +27279,7 @@ var import_socket,
   DISPATCH_TABLE_SNAPSHOT_PATH,
   DISPATCH_TABLE_EXCLUDED_PATH,
   EXCLUDED_BUNDLE_PATH,
+  SECURITY_TOOLS_INSTALL_PATH,
   BROWSER_BRIDGE_INSTALLER_RELATIVE_PATH,
   DISPATCH_MANIFEST_PATH,
   HOOK_VALIDATORS_PATH,
@@ -27407,6 +27416,11 @@ var init_paths = __esmMin(() => {
   EXCLUDED_BUNDLE_PATH = path.join(
     DIST_DIR,
     'fleet-pack.excluded.generated.cjs',
+  )
+  SECURITY_TOOLS_INSTALL_PATH = path.join(
+    FLEET_HOOKS_DIR,
+    'setup-security-tools',
+    'install.mts',
   )
   BROWSER_BRIDGE_INSTALLER_RELATIVE_PATH = path.join(
     'Contents',
@@ -46517,7 +46531,7 @@ const SCRIPT_META = {
 }
 const logger = getDep0Logger()
 const DEFAULT_REPO = 'SocketDev/socket-wheelhouse'
-const MANIFEST_NAME = 'release-bundle-manifest.json'
+const MANIFEST_NAME = 'publish-bundle-manifest.json'
 function resolveRepoRoot(startDir) {
   let cur = startDir
   const { root } = path.parse(cur)
@@ -46807,7 +46821,7 @@ async function installFleet(config) {
   const bundlePath = cfg.bundle !== void 0 ? path.resolve(cfg.bundle) : void 0
   const manifestPath =
     cfg.manifest !== void 0 ? path.resolve(cfg.manifest) : void 0
-  const ref = cfg.ref
+  const ref = cfg.ref || 'green'
   if (!ref && bundlePath === void 0) {
     logger.log(
       'install-fleet: no --ref. Pass an immutable fleet-pack-<sha> ref.',
