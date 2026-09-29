@@ -113,13 +113,13 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
-        env:
-          ALL_TARGETS: ${{ inputs.all-targets }}
       - id: gen
         name: Derive the tier-1 matrix from targets.mts
+        env:
+          ALL_TARGETS: ${{ github.event.inputs.all-targets }}
         run: |
           set -euo pipefail
-          if [ "${{ inputs.all-targets }}" = "true" ]; then
+          if [ "$ALL_TARGETS" = "true" ]; then
             matrix="$(node scripts/repo/gen-packages.mts --print-matrix-all)"
           else
             matrix="$(node scripts/repo/gen-packages.mts --print-matrix)"
