@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Pre-1.0 (`0.x`), the Rust API may change between minor versions; the pressed-data
 section format is the frozen compatibility contract.
 
+## Unreleased
+
+### Follow-up
+
+- Bump the decmpfs pin to =0.1.4 (carries the musl FICLONE ioctl fix) after the 7-day registry soak clears on 2026-10-06, then dispatch the all-targets build to verify the two musl legs green.
+
 ## 0.1.0
 
 ### Added
