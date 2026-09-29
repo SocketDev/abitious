@@ -174,16 +174,18 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install the musl toolchain (musl targets only)
         if: ${{ matrix.libc == 'musl' }}
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
       # The binder links node.lib (the node.exe import library) on Windows - the win-<arch>
       # dist folders publish it beside node.exe. Node version comes from setup-node.
       - name: Download node.lib (Windows targets only)
         if: ${{ runner.os == 'Windows' }}
+        env:
+          TARGET_CPU: ${{ matrix.cpu }}
+          WORKSPACE: ${{ github.workspace }}
         shell: pwsh
         run: |
           $v = (node -p process.version)
-          $arch = if ("${{ matrix.cpu }}" -eq "arm64") { "arm64" } else { "x64" }
-          $dir = "${{ github.workspace }}/.cache/node-lib"
+          $arch = if ($env:TARGET_CPU -eq "arm64") { "arm64" } else { "x64" }
+          $dir = "$env:WORKSPACE/.cache/node-lib"
           New-Item -ItemType Directory -Force $dir | Out-Null
           Invoke-WebRequest -Uri "https://nodejs.org/dist/$v/win-$arch/node.lib" -OutFile "$dir/node.lib"
           "NODE_LIB_DIR=$dir" | Add-Content $env:GITHUB_ENV
