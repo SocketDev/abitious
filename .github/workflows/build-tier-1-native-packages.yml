@@ -84,25 +84,14 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      # No `cache:` input is set, so setup-node does not cache here; the release-trigger
-      # cache-poisoning heuristic is a low-confidence false positive.
-      - name: Set up node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - name: Set up and install
+        uses: ./.github/actions/fleet/setup-and-install
         with:
           node-version: 24
+          payload-token-client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
+          payload-token-private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
       - name: Gen-packages --check (out-of-sync with targets.mts fails)
         run: node scripts/repo/gen-packages.mts --check
-      # Fleet pnpm: a pinned, SRI-verified pnpm on PATH (sets
-      # npm_config_manage_package_manager_versions=false) — NOT corepack (a fleet-wide
-      # wheelhouse rule) and not `npm i -g pnpm`.
-      - name: Set up pnpm
-        uses: ./.github/actions/repo/setup-pnpm
-      - name: Install devdeps
-        run: pnpm install --frozen-lockfile
       - name: Vitest (loader-resolution + codegen unit tests)
         run: pnpm test npm/cli/test
       - name: Typecheck (tsc --noemit)
@@ -111,7 +100,6 @@ jobs:
   # Derive the CI matrix from the single source of truth.
   prepare:
     name: Prepare
-    runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.gen.outputs.matrix }}
     steps:
