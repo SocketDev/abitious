@@ -1249,6 +1249,12 @@ importers:
         specifier: 'catalog:'
         version: 26.6.2
 
+  .claude/hooks/fleet/done-is-done-nudge:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.2
+
   .claude/hooks/fleet/dont-blame-nudge:
     devDependencies:
       '@types/node':

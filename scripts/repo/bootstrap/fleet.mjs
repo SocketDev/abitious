@@ -45161,17 +45161,24 @@ function evaluateHostMemory(snapshot, options = {}) {
       metric: 'telemetry',
       state: 'unknown',
     }
-  if (snapshot.pressure === 'critical' || snapshot.pressure === 'warning')
+  if (snapshot.pressure === 'critical')
     return {
       metric: 'pressure',
       state: 'blocked',
     }
+  if (snapshot.pressure === 'warning') {
+    if (
+      !(
+        snapshot.sensors.length > 0 &&
+        snapshot.sensors.every(sensor => sensor.status === 'ok')
+      )
+    )
+      return {
+        metric: 'pressure',
+        state: 'blocked',
+      }
+  }
   if (!isFiniteNonnegative(snapshot.usableHeadroomBytes))
-    return {
-      metric: 'telemetry',
-      state: 'unknown',
-    }
-  if (snapshot.pressure === 'unknown')
     return {
       metric: 'telemetry',
       state: 'unknown',
