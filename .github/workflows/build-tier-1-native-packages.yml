@@ -84,9 +84,14 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Set up and install
         uses: ./.github/actions/fleet/setup-and-install
         with:
+          checkout: 'false'
           node-version: 24
           payload-token-client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
           payload-token-private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
