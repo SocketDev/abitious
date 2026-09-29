@@ -323,7 +323,12 @@ test('loadPlatform prefers builtins, then the binder', () => {
     },
   })
   assert.equal(withBind.nativeFfi.name, 'napi-bind')
-  assert.equal(requested, `/sandbox/@abitious/${hostTriple({ platform: process.platform, arch: process.arch, report: GLIBC })}/bind.node`)
+  const expectedBindPath = `/sandbox/@abitious/${hostTriple({
+    platform: process.platform,
+    arch: process.arch,
+    report: GLIBC,
+  })}/bind.node`
+  assert.equal(requested, expectedBindPath)
 })
 test('loadPlatform wires the real process (process.report) + require.resolve', () => {
   // The production entry: it reads process.report.getReport() (the glibc-detection wiring on
