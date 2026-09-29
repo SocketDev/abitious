@@ -6,7 +6,7 @@ catalog:
   # be validated before it's pushed (see the `agent-ci` skill). dtu-github-
   # actions is its GitHub-Actions parser, pinned explicitly (not left
   # transitive) so its version is uniform fleet-wide.
-  '@ultrathink/acorn.rs.wasm': 0.1.1
+  '@ultrathink/acorn.rs.wasm': 0.2.0
   'ata-validator': 1.27.1
   'brace-expansion': 5.0.12
   'dtu-github-actions': 0.18.1
@@ -77,9 +77,9 @@ catalog:
   # candidates before simulating what a port actually cuts. Published
   # 2026-06-08, past the 7-day soak.
   'npm-high-impact': 1.13.0
-  'oxfmt': 0.68.0
-  'oxlint': 1.83.0
-  'oxlint-tsgolint': 7.0.2002
+  'oxfmt': 0.70.0
+  'oxlint': 1.85.0
+  'oxlint-tsgolint': 7.0.2003
   # parse5 — the HTML parser half of the markdown story. mdast hands raw HTML
   # back as an opaque `html` node (README `<picture>`/`<img>` blocks), so
   # attribute-level edits need parse5's per-attribute source locations to land
@@ -101,7 +101,7 @@ catalog:
   # @rolldown/binding-* + @oxc-project/types stay as soak-excluded
   # transitives (consumers depend on `rolldown` only).
   'regjsparser': 0.13.3
-  'rolldown': 1.2.9
+  'rolldown': 1.2.10
   'semver': 7.8.5
   'shell-quote': 1.10.0
   'taze': 21.1.0
@@ -118,7 +118,7 @@ catalog:
   'chrome-devtools-mcp': 1.9.0
   # Playwright MCP server — agent-driven browsing with the fleet agent-banner
   # init script (see .config/fleet/playwright/).
-  '@playwright/mcp': 0.0.81
+  '@playwright/mcp': 0.0.82
   '@vitest/ui': 5.0.1
   c8: 12.0.0
   # agent-ci runs a repo's GitHub Actions workflows locally in Docker so a
@@ -303,74 +303,52 @@ minimumReleaseAgeExclude:
   - 'socket'
   - 'sdxgen'
   - 'sockeye'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@ata-validator/native-darwin-arm64@1.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@ata-validator/native-darwin-x64@1.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@ata-validator/native-linux-arm64-gnu@1.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@ata-validator/native-linux-arm64-musl@1.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@ata-validator/native-linux-x64-gnu@1.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@ata-validator/native-linux-x64-musl@1.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@ata-validator/native-win32-x64@1.27.0'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-android-arm-eabi@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-android-arm64@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-darwin-arm64@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-darwin-x64@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-freebsd-x64@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-linux-arm-gnueabihf@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-linux-arm64-gnu@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-linux-arm64-musl@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-linux-ppc64-gnu@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-linux-s390x-gnu@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-linux-x64-gnu@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-linux-x64-musl@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-openharmony-arm64@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-win32-arm64-msvc@1.2.9'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - '@rolldown/binding-win32-x64-msvc@1.2.9'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - 'ata-validator@1.27.0'
-  # published: 2026-09-16 | removable: 2026-09-23
-  - 'rolldown@1.2.9'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@fallow-cli/darwin-arm64@3.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@fallow-cli/darwin-x64@3.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@fallow-cli/linux-arm64-gnu@3.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@fallow-cli/linux-arm64-musl@3.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@fallow-cli/linux-x64-gnu@3.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@fallow-cli/linux-x64-musl@3.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@fallow-cli/win32-arm64-msvc@3.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - '@fallow-cli/win32-x64-msvc@3.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - 'fallow-type-aware@3.27.0'
-  # published: 2026-09-17 | removable: 2026-09-24
-  - 'fallow@3.27.0'
+  # published: 2026-09-24 | removable: 2026-10-01
+  - '@oxlint-tsgolint/darwin-arm64@7.0.2003'
+  # published: 2026-09-24 | removable: 2026-10-01
+  - '@oxlint-tsgolint/darwin-x64@7.0.2003'
+  # published: 2026-09-24 | removable: 2026-10-01
+  - '@oxlint-tsgolint/linux-arm64@7.0.2003'
+  # published: 2026-09-24 | removable: 2026-10-01
+  - '@oxlint-tsgolint/linux-x64@7.0.2003'
+  # published: 2026-09-24 | removable: 2026-10-01
+  - '@oxlint-tsgolint/win32-arm64@7.0.2003'
+  # published: 2026-09-24 | removable: 2026-10-01
+  - '@oxlint-tsgolint/win32-x64@7.0.2003'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-android-arm-eabi@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-android-arm64@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-darwin-arm64@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-darwin-x64@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-freebsd-x64@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-linux-arm-gnueabihf@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-linux-arm64-gnu@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-linux-arm64-musl@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-linux-ppc64-gnu@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-linux-s390x-gnu@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-linux-x64-gnu@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-linux-x64-musl@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-openharmony-arm64@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-win32-arm64-msvc@1.2.10'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - '@rolldown/binding-win32-x64-msvc@1.2.10'
+  # published: 2026-09-24 | removable: 2026-10-01
+  - 'oxlint-tsgolint@7.0.2003'
+  # published: 2026-09-23 | removable: 2026-09-30
+  - 'rolldown@1.2.10'
 
 # Refuse transitive (sub-) deps declared via git/tarball/local-tarball
 # specs. Direct git deps in this repo are still allowed; this only
@@ -388,6 +366,10 @@ blockExoticSubdeps: true
 # under a dev pnpm that differed from the `packageManager` pin. `warn` keeps
 # the pin informational without blocking CI or local dev.
 pmOnFail: warn
+autoDedupe: true
+savePrefix: ''
+saveTypes: true
+progress: false
 # Link the workspace @abitious/<triple> packages for @abitious/cli's version-string
 # optionalDependencies (pnpm 11 defaults this to false, which would resolve them from
 # the registry — where they aren't published yet — so they'd be optional-skipped and the
@@ -464,6 +446,13 @@ patchedDependencies:
   # patching one build leaves the other broken.
   # On a bump, regenerate via `pnpm patch brace-expansion` + `pnpm patch-commit`.
   brace-expansion@5.0.12: patches/fleet/brace-expansion@5.0.12.patch
+  # dedup: coverage matcher allocation (managed by socket-wheelhouse sync):
+  # Coverage checks exclusions before matching includes.
+  # Compile exclusions once instead of once per include pattern.
+  # This preserves membership and bounds matcher memory for fleet coverage.
+  # CPU-profiled forks use the configured teardown deadline to flush profiles.
+  # Ordinary forks retain the upstream 500 ms termination grace.
+  vitest@5.0.1: patches/fleet/vitest@5.0.1.patch
 includeWorkspaceRoot: true
 pipelines:
   fleet-prepare:
@@ -474,9 +463,9 @@ tasks:
     dependsOn: []
 peerDependencyRules:
   allowedVersions:
-    '@socketsecurity/lib>typescript': 7.1.0-dev.20260913.1
-    '@socketsecurity/registry>typescript': 7.1.0-dev.20260913.1
-    mcp-tada>typescript: 7.1.0-dev.20260913.1
+    '@socketsecurity/lib>typescript': 7.0.2
+    '@socketsecurity/registry>typescript': 7.0.2
+    mcp-tada>typescript: 7.0.2
 
 # Proceed with a node_modules purge WITHOUT an interactive confirm. The fleet
 # runs pnpm non-interactively everywhere (skills, scripts, hooks, agents, CI) —
