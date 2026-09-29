@@ -42,7 +42,7 @@ abitious-producer = { path = "crates/abitious-producer", version = "0.1.0" }
 # writes a resource fork the stub has to read back byte-for-byte.
 # First-party (SocketDev/decmpfs, trustpub OIDC pipeline) — soak-exempt via the
 # tracked lock pin per the cargo exemption note in scripts/fleet/constants/soak-excludes.mts.
-decmpfs = "=0.1.4"
+decmpfs = "=0.1.5"
 # The section ABI's two primitives: SHA-512 payload integrity + SHA-256 cache
 # key (`sha2`) and the zstd codec used end-to-end (`zstd`). Both pure Rust, no
 # C toolchain floor beyond zstd-sys's bundled libzstd. Pinned to decmpfs's exact

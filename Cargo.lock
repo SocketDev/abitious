@@ -807,9 +807,9 @@ checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
 
 [[package]]
 name = "decmpfs"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21a653ed1acf9f3e6d97a22a7300fa64a67dfab20e39bbfc11d34169b818a8a4"
+checksum = "c578d5a4766403b66897832d7cea401ab57d45e5b7a1e4f515d9c6ce0b74409e"
 dependencies = [
  "libc",
  "windows-sys 0.59.0",
