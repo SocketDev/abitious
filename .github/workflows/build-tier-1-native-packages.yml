@@ -100,6 +100,7 @@ jobs:
   # Derive the CI matrix from the single source of truth.
   prepare:
     name: Prepare
+    runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.gen.outputs.matrix }}
     steps:
@@ -162,6 +163,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install the musl toolchain (musl targets only)
         if: ${{ matrix.libc == 'musl' }}
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
       # The binder links node.lib (the node.exe import library) on Windows - the win-<arch>
       # dist folders publish it beside node.exe. Node version comes from setup-node.
       - name: Download node.lib (Windows targets only)
