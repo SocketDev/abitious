@@ -151,12 +151,12 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0 (2026-07-14)
         with:
           node-version: 24
-      # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-07-12); keep the
+      # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-09-24); keep the
       # `toolchain:` here in lockstep with it. `targets:` adds the matrix cross target.
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master (2026-09-12)
         with:
-          toolchain: nightly-2026-07-12
+          toolchain: nightly-2026-09-24
           targets: ${{ matrix.rust }}
       # save-if below is the real mitigation (only a push to main populates the shared
       # cache, so a PR or the privileged `release` run can neither poison it nor bake a
