@@ -16,7 +16,7 @@ catalog:
   '@shadscan/cli': 0.17.0
   '@sinclair/typebox': 0.34.52
   'ecc-agentshield': 1.6.0
-  'fallow': 3.27.0
+  'fallow': 3.28.0
   'mcp-tada': 0.4.0
   'run-local-ci': 0.18.1
   # typebox 1.x — the unscoped rewrite of @sinclair/typebox. Both names are
@@ -110,7 +110,7 @@ catalog:
   # high, GHSA-v6wh-96g9-6wx3 medium). Tracked here so the pnpm
   # override below pins every transitive `vite` (vitest, @vitest/*,
   # plugin authors) to it.
-  'typescript': 7.1.0-dev.20260921.1
+  'typescript': 7.1.0-dev.20260922.1
   'vitest': 5.0.1
   '@vitest/coverage-v8': 5.0.1
   '@bcoe/v8-coverage': 1.0.2

@@ -27418,9 +27418,12 @@ var init_paths = __esmMin(() => {
     'fleet-pack.excluded.generated.cjs',
   )
   SECURITY_TOOLS_INSTALL_PATH = path.join(
-    FLEET_HOOKS_DIR,
-    'setup-security-tools',
-    'install.mts',
+    REPO_ROOT,
+    'scripts',
+    'fleet',
+    'setup',
+    'security',
+    'tools.mts',
   )
   BROWSER_BRIDGE_INSTALLER_RELATIVE_PATH = path.join(
     'Contents',

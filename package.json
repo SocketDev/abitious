@@ -27,7 +27,7 @@
     "lint": "node scripts/fleet/lint.mts",
     "prepare": "node scripts/repo/bootstrap/prepare.mts && node scripts/fleet/install-git-hooks.mts && node scripts/fleet/prepare.mts",
     "security": "node scripts/fleet/security.mts",
-    "setup-security-tools": "node .claude/hooks/fleet/setup-security-tools/install.mts",
+    "setup-security-tools": "node scripts/fleet/setup/security/tools.mts",
     "sync-oxlint-rules": "node scripts/fleet/sync-oxlint-rules.mts",
     "sync-package-manager-pins": "node scripts/fleet/sync-package-manager-pins.mts",
     "update": "node scripts/fleet/update.mts",
@@ -39,7 +39,7 @@
     "setup:refero": "node scripts/fleet/setup/refero.mts",
     "setup:rust": "node scripts/fleet/setup/rust.mts",
     "type": "node scripts/fleet/type.mts",
-    "npm:publish": "node scripts/fleet/npm/publish-npm.mts",
+    "npm:publish": "node scripts/fleet/npm/publish/run.mts",
     "prepublishOnly": "echo 'ERROR: Use GitHub Actions workflow for publishing' && exit 1",
     "socket-wheelhouse:emit-schema": "node scripts/fleet/socket-wheelhouse-emit-schema.mts",
     "mcp:reset": "node scripts/fleet/mcp/reset.mts",
@@ -201,9 +201,11 @@
     "test:slow": "node scripts/fleet/test/slow.mts",
     "gen:mcp:config": "node scripts/fleet/mcp/config.mts",
     "npm:approve:browser": "node scripts/fleet/registry-infra/npm/approve-staged-browser.mts",
-    "setup:security": "node scripts/fleet/setup/security.mts",
+    "setup:security": "node scripts/fleet/setup/security/run.mts",
     "setup:hook-snapshot": "node scripts/fleet/setup/hook-snapshot.mts",
-    "setup:repo-steps": "node scripts/fleet/setup/repo-steps.mts"
+    "setup:repo-steps": "node scripts/fleet/setup/repo-steps.mts",
+    "setup:security-tools": "node scripts/fleet/setup/security/tools.mts",
+    "setup:xcode": "node scripts/fleet/setup/xcode-license.mts"
   },
   "devDependencies": {
     "@bcoe/v8-coverage": "catalog:",
