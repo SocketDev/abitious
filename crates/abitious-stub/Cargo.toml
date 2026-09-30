@@ -1,5 +1,6 @@
 [package]
 name = "abitious-stub"
+publish = false
 description = "The generic abitious self-extracting trampoline: a cdylib whose napi_register_module_v1 self-extracts the real addon from its own SMOL/__PRESSED_DATA section and forwards registration to it."
 version.workspace = true
 edition.workspace = true

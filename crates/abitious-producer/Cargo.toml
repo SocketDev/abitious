@@ -1,5 +1,6 @@
 [package]
 name = "abitious-producer"
+publish = false
 description = "The abitious host producer: compress a real .node addon and inject + ad-hoc re-sign it into a generic stub's SMOL/__PRESSED_DATA section, emitting a self-loading hybrid .node."
 version.workspace = true
 edition.workspace = true
