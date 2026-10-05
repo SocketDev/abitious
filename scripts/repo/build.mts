@@ -1,4 +1,4 @@
-import process from 'node:process'
+import { parseArgs } from 'node:util'
 
 import { spawn } from '@socketsecurity/lib-stable/process/spawn/child'
 
@@ -6,10 +6,18 @@ import { resolveBuildMode } from '../fleet/build/mode.mts'
 import { REPO_ROOT } from '../fleet/paths.mts'
 import { isMainModule } from '../fleet/process/is-main-module.mts'
 import { runMain } from '../fleet/process/main/run.mts'
-import { scriptStdio } from '../fleet/process/script-output.mts'
+import { getScriptArgs, scriptStdio } from '../fleet/process/script-output.mts'
 
 export async function buildNativeWorkspace(): Promise<void> {
-  const mode = resolveBuildMode(process.argv.slice(2))
+  const modeArgs = getScriptArgs()
+  parseArgs({
+    args: modeArgs,
+    options: {
+      dev: { type: 'boolean' },
+      prod: { type: 'boolean' },
+    },
+  })
+  const mode = resolveBuildMode(modeArgs)
   const args = ['build', '--workspace']
   if (mode === 'prod') {
     args.push('--release')
