@@ -16583,13 +16583,13 @@ const ALWAYS_TRACKED_PREFIXES = [
   'patches/fleet/minimatch@10.2.6.patch',
   'patches/fleet/run-local-ci@0.18.1.patch',
   'patches/fleet/vitest@5.0.0.patch',
-  'patches/fleet/vitest@5.0.1.patch',
-  'scripts/fleet/npm/scan-ci.mts',
-  'scripts/fleet/npm/scan-receipt.mts',
-  'scripts/fleet/registry-infra/npm/scan-ndjson.mts',
-  'scripts/fleet/registry-infra/npm/scan.mts',
+  'patches/fleet/vitest@5.0.3.patch',
+  'scripts/fleet/npm/scan/receipt.mts',
+  'scripts/fleet/npm/scan/staged.mts',
+  'scripts/fleet/registry/npm/scan/ndjson.mts',
+  'scripts/fleet/registry/npm/scan/run.mts',
   'scripts/fleet/setup/bootstrap/zero-dep-packages.mjs',
-  'scripts/fleet/setup/lib/check-firewall.mjs',
+  'scripts/fleet/setup/lib/check/sfw.mjs',
   'scripts/fleet/setup/lib/error-message.mjs',
   'scripts/fleet/setup/lib/install-tool.mjs',
   'scripts/fleet/setup/lib/read-package-integrity.mjs',
@@ -17277,8 +17277,8 @@ function effectiveMemberManifest(manifest, dest) {
  * parser truncates there — every flag after it is DISCARDED, not collected as a
  * positional. The script then runs with default behaviour while the caller
  * believes they passed flags. That is merely confusing for a read-only script
- * and dangerous for a destructive one: `prune:branch-backups -- --dry-run`
- * drops the `--dry-run` and performs a live run against every repo.
+ * and dangerous for a destructive one: `prune:branch-backups -- <flag>`
+ * drops the trailing flag and performs a live run against every repo.
  *
  * Checked against `process.argv` because by the time parsing finishes the
  * dropped flags are unrecoverable — the parsed result cannot tell you what was
@@ -17294,7 +17294,7 @@ function hasBareDoubleDash(argv) {
 function bareDoubleDashMessage(scriptName) {
   return `a bare \`--\` in the command line
   Where: the argv for ${scriptName}.\n  Saw:   flags after \`--\`. The argv parser truncates there, so those flags were NOT applied and the script ran with its defaults.
-  Fix:   drop the \`--\`, e.g. \`pnpm run ${scriptName} --dry-run\`.`
+  Fix:   drop the \`--\`, e.g. \`pnpm run ${scriptName} --json\`.`
 }
 /**
  * The help request found on argv, if any: `--describe` wins over `-h`/`--help`
@@ -27119,7 +27119,14 @@ var init_runtime = __esmMin(() => {
   OPENCODE_HOME = path.join(XDG_DATA_HOME, 'opencode')
 })
 
-var import_socket$1,
+var AI_SOURCE_RELATIVE_DIR, AI_SOURCE_DIR
+var init_ai = __esmMin(() => {
+  init_runtime()
+  AI_SOURCE_RELATIVE_DIR = 'scripts/fleet/ai'
+  AI_SOURCE_DIR = path.join(REPO_ROOT, AI_SOURCE_RELATIVE_DIR)
+})
+
+var import_socket$2,
   BROWSER_BRIDGE_RUNTIME_DIR,
   BROWSER_BRIDGE_LAST_FAILURE,
   BROWSER_BRIDGE_LOCAL_ROOT,
@@ -27129,10 +27136,10 @@ var import_socket$1,
   BROWSER_BRIDGE_LOCAL_RECEIPT,
   BROWSER_BRIDGE_RECEIPT_RELATIVE_PATH,
   BROWSER_BRIDGE_LOCAL_MANIFEST
-var init_browser = __esmMin(() => {
-  import_socket$1 = require_socket()
+var init_browser_runtime = __esmMin(() => {
+  import_socket$2 = require_socket()
   BROWSER_BRIDGE_RUNTIME_DIR = path.join(
-    (0, import_socket$1.getSocketWheelhouseDir)(),
+    (0, import_socket$2.getSocketWheelhouseDir)(),
     'browser-bridge',
   )
   BROWSER_BRIDGE_LAST_FAILURE = path.join(
@@ -27166,6 +27173,25 @@ var init_browser = __esmMin(() => {
     'Chrome',
     'NativeMessagingHosts',
     'dev.socket.wheelhouse.browser_bridge.json',
+  )
+})
+
+var BROWSER_JEV_SOURCE_RELATIVE_DIR, BROWSER_JEV_SOURCE_DIR
+var init_browser = __esmMin(() => {
+  init_ai()
+  init_runtime()
+  init_browser_runtime()
+  BROWSER_JEV_SOURCE_RELATIVE_DIR = `${AI_SOURCE_RELATIVE_DIR}/browser/agent/jev`
+  BROWSER_JEV_SOURCE_DIR = path.join(REPO_ROOT, BROWSER_JEV_SOURCE_RELATIVE_DIR)
+})
+
+var import_socket$1, ADMIN_PUSH_LOCK_DIR
+var init_admin_push = __esmMin(() => {
+  import_socket$1 = require_socket()
+  ADMIN_PUSH_LOCK_DIR = path.join(
+    (0, import_socket$1.getSocketWheelhouseDir)(),
+    'run',
+    'admin-push',
   )
 })
 
@@ -27239,7 +27265,8 @@ function resolveModelPricingJson(repoRoot) {
     'model-pricing.json',
   )
 }
-var import_socket,
+var import_platform$2,
+  import_socket,
   import_rewire$1,
   TONE_SETTINGS_PATH,
   CLAUDE_USER_SETTINGS,
@@ -27319,6 +27346,7 @@ var import_socket,
   GIT_HOOK_TEST_DIRS,
   OWNS_RELOCATED_TESTS
 var init_paths = __esmMin(() => {
+  import_platform$2 = require_platform()
   init_scope()
   init_conditional_config()
   init_util()
@@ -27326,6 +27354,7 @@ var init_paths = __esmMin(() => {
   import_socket = require_socket()
   import_rewire$1 = require_rewire$1()
   init_browser()
+  init_admin_push()
   TONE_SETTINGS_PATH = path.join(
     (0, import_socket.getSocketHomePath)(),
     'config',
@@ -27358,6 +27387,7 @@ var init_paths = __esmMin(() => {
   REPO_CACHE_DIR = path.join(TOOL_CACHE_DIR, 'repo')
   BROWSER_BRIDGE_EXTENSION_SOURCE_DIR = path.join(
     import.meta.dirname,
+    'ai',
     'browser',
     'bridge',
     'extension',
@@ -27461,7 +27491,7 @@ var init_paths = __esmMin(() => {
   MISE_SHIM_PATH = path.join(
     (0, import_socket.getSocketWheelhouseDir)(),
     'bin',
-    process$1.platform === 'win32' ? 'mise.cmd' : 'mise',
+    (0, import_platform$2.isWin32)() ? 'mise.cmd' : 'mise',
   )
   NODE_VERSION_PATH = path.join(REPO_ROOT, '.node-version')
   PNPM_LOCK = resolvePnpmLockPath(REPO_ROOT)
@@ -44993,13 +45023,13 @@ var require_child = /* @__PURE__ */ __commonJSMin(exports => {
 })
 
 function spawnTimeoutMs(baseMs) {
-  return (0, import_platform.isWin32)()
+  return (0, import_platform$1.isWin32)()
     ? baseMs * WIN32_SPAWN_TIMEOUT_MULTIPLIER
     : baseMs
 }
-var import_platform, WIN32_SPAWN_TIMEOUT_MULTIPLIER
+var import_platform$1, WIN32_SPAWN_TIMEOUT_MULTIPLIER
 var init_spawn_timeout = __esmMin(() => {
-  import_platform = require_platform()
+  import_platform$1 = require_platform()
   WIN32_SPAWN_TIMEOUT_MULTIPLIER = 6
 })
 
@@ -45098,6 +45128,7 @@ function darwinSnapshot(timeoutMs) {
   if (swap === void 0)
     sensors.push({
       name: 'vm.swapusage',
+      role: 'context',
       status: 'unavailable',
     })
   return {
@@ -45184,10 +45215,13 @@ function evaluateHostMemory(snapshot, options = {}) {
       state: 'blocked',
     }
   if (snapshot.pressure === 'warning') {
+    const pressureSensors = snapshot.sensors.filter(
+      sensor => sensor.role !== 'context',
+    )
     if (
       !(
-        snapshot.sensors.length > 0 &&
-        snapshot.sensors.every(sensor => sensor.status === 'ok')
+        pressureSensors.length > 0 &&
+        pressureSensors.every(sensor => sensor.status === 'ok')
       )
     )
       return {
@@ -45254,7 +45288,7 @@ function isValidPressure(value) {
   )
 }
 var import_child, GIB, MINIMUM_HOST_HEADROOM_BYTES
-var init_host_memory = __esmMin(() => {
+var init_host = __esmMin(() => {
   import_child = require_child()
   init_spawn_timeout()
   GIB = 1024 ** 3
@@ -45286,7 +45320,7 @@ function isHeavyJobAncestor(owner, pid, rows) {
   return false
 }
 async function readHeavyJobProcesses() {
-  const windows = process.platform === 'win32'
+  const windows = (0, import_platform.isWin32)()
   const result = await readHeavyJobTable(
     windows ? 'powershell.exe' : 'ps',
     windows
@@ -45336,8 +45370,12 @@ function isHeavyJobProcessAlive(pid) {
     return error.code !== 'ESRCH'
   }
 }
-var readHeavyJobTable, PROCESS_TABLE_TIMEOUT_MS, PROCESS_TABLE_MAX_BYTES
+var import_platform,
+  readHeavyJobTable,
+  PROCESS_TABLE_TIMEOUT_MS,
+  PROCESS_TABLE_MAX_BYTES
 var init_owner = __esmMin(() => {
+  import_platform = require_platform()
   readHeavyJobTable = promisify(execFile)
   PROCESS_TABLE_TIMEOUT_MS = 5e3
   PROCESS_TABLE_MAX_BYTES = 4194304
@@ -45653,7 +45691,7 @@ var init_admission = __esmMin(() => {
   import_ci = require_ci()
   import_abort = require_abort()
   init_active_run_marker()
-  init_host_memory()
+  init_host()
   init_script_result()
   init_strict()
   init_paths()
@@ -45736,7 +45774,11 @@ function runMain(main, meta) {
   executeMain(main, meta)
 }
 async function executeMain(main, meta) {
-  const argv = process$1.argv.slice(2)
+  const argumentsList = process$1.argv.slice(2)
+  const boundary = meta?.commandBoundary
+    ? argumentsList.indexOf(meta.commandBoundary)
+    : -1
+  const argv = boundary < 0 ? argumentsList : argumentsList.slice(0, boundary)
   if (answerScriptHelp(argv, meta)) return
   const json = isJsonRequested(argv)
   if (json && !meta?.json) {
@@ -45764,7 +45806,7 @@ async function executeMain(main, meta) {
     return
   }
   try {
-    await invokeScriptMain(main, meta)
+    await invokeScriptMain(main, meta, { json })
   } catch (e) {
     const exitCode = e instanceof ScriptExit ? e.exitCode : 1
     if (json)
@@ -45802,8 +45844,11 @@ function applyScriptExitCode(result) {
   if (typeof code === 'number') process$1.exitCode = code
   else if (!process$1.exitCode) process$1.exitCode = 0
 }
-async function invokeScriptMain(main, meta) {
-  const json = isJsonRequested(process$1.argv.slice(2))
+async function invokeScriptMain(main, meta, config) {
+  const { json } = {
+    __proto__: null,
+    ...config,
+  }
   let result
   if (meta?.heavyJob) {
     const { withHeavyJob } = await Promise.resolve().then(
@@ -46390,7 +46435,7 @@ if (
   path.basename(fileURLToPath(import.meta.url)) === 'config.mts' &&
   isMainModule$1(import.meta.url)
 )
-  runMain(main$1, SCRIPT_META$1)
+  runMain(() => main$1(), SCRIPT_META$1)
 
 init_mirror_lock()
 const INSTALLED_ADAPTER_PATHS = [
@@ -46824,7 +46869,7 @@ async function installFleet(config) {
   const bundlePath = cfg.bundle !== void 0 ? path.resolve(cfg.bundle) : void 0
   const manifestPath =
     cfg.manifest !== void 0 ? path.resolve(cfg.manifest) : void 0
-  const ref = cfg.ref || 'green'
+  const ref = cfg.ref
   if (!ref && bundlePath === void 0) {
     logger.log(
       'install-fleet: no --ref. Pass an immutable fleet-pack-<sha> ref.',

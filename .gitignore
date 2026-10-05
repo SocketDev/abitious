@@ -245,6 +245,9 @@ pnpm-debug.log
 !/.github/actions/fleet/_shared/codeql-languages.mjs
 !/.github/actions/fleet/_shared/install-tool.d.mts
 !/.github/actions/fleet/_shared/install-tool.mjs
+!/.github/actions/fleet/_shared/install/
+!/.github/actions/fleet/_shared/install/atomic.d.mts
+!/.github/actions/fleet/_shared/install/atomic.mjs
 !/.github/actions/fleet/_shared/jq.d.mts
 !/.github/actions/fleet/_shared/jq.mjs
 !/.github/actions/fleet/_shared/platform-key.mjs
@@ -334,21 +337,24 @@ pnpm-debug.log
 !/patches/fleet/minimatch@10.2.6.patch
 !/patches/fleet/run-local-ci@0.18.1.patch
 !/patches/fleet/vitest@5.0.0.patch
-!/patches/fleet/vitest@5.0.1.patch
+!/patches/fleet/vitest@5.0.3.patch
 !/scripts/
 !/scripts/fleet/
 !/scripts/fleet/npm/
-!/scripts/fleet/npm/scan-ci.mts
-!/scripts/fleet/npm/scan-receipt.mts
-!/scripts/fleet/registry-infra/
-!/scripts/fleet/registry-infra/npm/
-!/scripts/fleet/registry-infra/npm/scan-ndjson.mts
-!/scripts/fleet/registry-infra/npm/scan.mts
+!/scripts/fleet/npm/scan/
+!/scripts/fleet/npm/scan/receipt.mts
+!/scripts/fleet/npm/scan/staged.mts
+!/scripts/fleet/registry/
+!/scripts/fleet/registry/npm/
+!/scripts/fleet/registry/npm/scan/
+!/scripts/fleet/registry/npm/scan/ndjson.mts
+!/scripts/fleet/registry/npm/scan/run.mts
 !/scripts/fleet/setup/
 !/scripts/fleet/setup/bootstrap/
 !/scripts/fleet/setup/bootstrap/zero-dep-packages.mjs
 !/scripts/fleet/setup/lib/
-!/scripts/fleet/setup/lib/check-firewall.mjs
+!/scripts/fleet/setup/lib/check/
+!/scripts/fleet/setup/lib/check/sfw.mjs
 !/scripts/fleet/setup/lib/error-message.mjs
 !/scripts/fleet/setup/lib/install-tool.mjs
 !/scripts/fleet/setup/lib/read-package-integrity.mjs
@@ -356,7 +362,7 @@ pnpm-debug.log
 # </fleet-allowlist>
 # <fleet-pack>
 # Fleet-pack untrack set — managed by scripts/repo/bootstrap/fleet.mjs.
-# REGENERATED from the release-bundle manifest on every hydrate; stale
+# REGENERATED from the publish-bundle manifest on every hydrate; stale
 # entries are pruned. Hand-added ignores belong OUTSIDE these markers.
 .agents/
 .clinerules/
