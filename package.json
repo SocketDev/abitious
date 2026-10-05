@@ -5,7 +5,9 @@
   "description": "Workspace root for the abitious npm distribution (@abitious/cli + per-triple platform packages). The crates are the Cargo workspace; this drives codegen, typecheck, and the JS tests.",
   "license": "MIT",
   "scripts": {
-    "build": "cargo build --workspace",
+    "build": "node scripts/repo/build.mts",
+    "build:prod": "node scripts/repo/build.mts --prod",
+    "git:commit-paths": "node scripts/fleet/git/commit/named-paths.mts",
     "coverage": "node scripts/repo/coverage.mts",
     "gen": "node scripts/repo/gen-packages.mts",
     "gen:check": "node scripts/repo/gen-packages.mts --check",
