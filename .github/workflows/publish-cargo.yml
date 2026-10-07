@@ -68,6 +68,9 @@ jobs:
 
       - name: Set up and install
         uses: ./.github/actions/fleet/setup-and-install
+        with:
+          payload-token-client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
+          payload-token-private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
       # Fleet composites, not the third-party actions they replace: a raw
       # `uses:` here would force dtolnay/rust-toolchain and Swatinem/rust-cache
       # onto the Actions allowlist of every repo seeded from this preset, and a
@@ -81,6 +84,14 @@ jobs:
         with:
           prefix-key: cargo-publish
           workspaces: .
+      - name: Mint PR branch token for nightly bump
+        if: ${{ inputs.nightly-version != '' }}
+        id: pr-branch-app
+        uses: ./.github/actions/fleet/github-pr-branch-app-token
+        with:
+          client-id: ${{ secrets.SOCKET_PR_CLIENT_ID || vars.SOCKET_PR_CLIENT_ID }}
+          private-key: ${{ secrets.SOCKET_PR_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
       - name: Mint release token for nightly bump
         if: ${{ inputs.nightly-version != '' }}
         id: release-app
@@ -99,6 +110,7 @@ jobs:
       - name: Stage and digest crate
         env:
           GH_TOKEN: ${{ inputs.nightly-version != '' && steps.release-app.outputs.token || github.token }}
+          PR_APP_TOKEN: ${{ steps.pr-branch-app.outputs.token }}
           RELEASE_APP_TOKEN: ${{ steps.release-app.outputs.token }}
           NIGHTLY_VERSION: ${{ inputs.nightly-version }}
         run: |

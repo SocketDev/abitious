@@ -136,6 +136,7 @@ function receiptFrom(
     packageVersion: config.packageVersion,
     policy: {
       errorAlerts: verdict.errorAlerts.length,
+      totalAlerts: verdict.totalAlerts,
       warnAlerts: verdict.warnAlerts.length,
     },
     publishRunId: config.originalPublishRunId,
