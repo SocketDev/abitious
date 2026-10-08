@@ -950,6 +950,10 @@ importers:
         version: 26.6.3
 
   .claude/hooks/fleet/claude-md-rule-add-guard:
+    dependencies:
+      '@socketsecurity/lib-stable':
+        specifier: 'catalog:'
+        version: '@socketsecurity/lib@7.0.3(typescript@7.1.0-dev.20260929.1)'
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -1649,6 +1653,10 @@ importers:
         version: 26.6.3
 
   .claude/hooks/fleet/memory-codify-nudge:
+    dependencies:
+      '@socketsecurity/lib-stable':
+        specifier: 'catalog:'
+        version: '@socketsecurity/lib@7.0.3(typescript@7.1.0-dev.20260929.1)'
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -2082,6 +2090,10 @@ importers:
         version: 26.6.3
 
   .claude/hooks/fleet/no-pr-assets-in-branch-guard:
+    dependencies:
+      '@socketsecurity/lib-stable':
+        specifier: 'catalog:'
+        version: '@socketsecurity/lib@7.0.3(typescript@7.1.0-dev.20260929.1)'
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -2528,6 +2540,10 @@ importers:
         version: 26.6.3
 
   .claude/hooks/fleet/parallel-agent-edit-guard:
+    dependencies:
+      '@socketsecurity/lib-stable':
+        specifier: 'catalog:'
+        version: '@socketsecurity/lib@7.0.3(typescript@7.1.0-dev.20260929.1)'
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -2616,6 +2632,10 @@ importers:
         version: 26.6.3
 
   .claude/hooks/fleet/peer-workstream-guard:
+    dependencies:
+      '@socketsecurity/lib-stable':
+        specifier: 'catalog:'
+        version: '@socketsecurity/lib@7.0.3(typescript@7.1.0-dev.20260929.1)'
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -3274,6 +3294,10 @@ importers:
         version: 26.6.3
 
   .claude/hooks/fleet/snapshot-hostile-require-guard:
+    dependencies:
+      '@socketsecurity/lib-stable':
+        specifier: 'catalog:'
+        version: '@socketsecurity/lib@7.0.3(typescript@7.1.0-dev.20260929.1)'
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
