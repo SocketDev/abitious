@@ -1,24 +1,3 @@
-# Force LF line endings for all text on every platform. Without this, a Windows
-# checkout (core.autocrlf) would convert LF->CRLF and `cargo fmt --check` — which
-# enforces `newline_style = "Unix"` (rustfmt.toml) — rejects every file, failing
-# the Windows leg of ci.yml. git auto-detects binary content and leaves it alone.
-* text=auto eol=lf
-
-# Belt-and-suspenders for the source/text types this repo ships.
-*.rs    text eol=lf
-*.toml  text eol=lf
-*.md    text eol=lf
-*.yml   text eol=lf
-*.yaml  text eol=lf
-*.json  text eol=lf
-*.mts   text eol=lf
-*.cjs   text eol=lf
-*.cts   text eol=lf
-*.mjs   text eol=lf
-*.ts    text eol=lf
-*.sh    text eol=lf
-
-# <fleet>
 # Cascaded from socket-wheelhouse/template/base/universal/. Don't edit locally —
 # edit upstream and re-cascade via commit-cascade. Marked
 # linguist-generated so GitHub PR diffs collapse them by default.
@@ -166,6 +145,24 @@ test/fleet/unit/registry/cargo/placeholder.test.mts linguist-generated=true
 test/fleet/unit/registry/npm/placeholder.test.mts linguist-generated=true
 test/fleet/unit/setup/lib/pnpm-path.test.mts linguist-generated=true
 *.patch whitespace=-blank-at-eol,-space-before-tab
-# </fleet>
 # <repo>
+# Force LF line endings for all text on every platform. Without this, a Windows
+# checkout (core.autocrlf) would convert LF->CRLF and `cargo fmt --check` — which
+# enforces `newline_style = "Unix"` (rustfmt.toml) — rejects every file, failing
+# the Windows leg of ci.yml. git auto-detects binary content and leaves it alone.
+* text=auto eol=lf
+
+# Belt-and-suspenders for the source/text types this repo ships.
+*.rs    text eol=lf
+*.toml  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.mts   text eol=lf
+*.cjs   text eol=lf
+*.cts   text eol=lf
+*.mjs   text eol=lf
+*.ts    text eol=lf
+*.sh    text eol=lf
 # </repo>
