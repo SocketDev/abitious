@@ -5,6 +5,29 @@
   "$schema": "../socket-wheelhouse-schema.json",
   "schemaVersion": 1,
   "repoName": "abitious",
+  "docs": {
+    "surfaces": [
+      {
+        "kind": "api",
+        "hub": "docs/api.md",
+        "sources": [
+          "npm/cli/index.d.cts",
+          "npm/cli/index.cjs",
+          "npm/cli/loader.cjs",
+          "crates/abitious-decmpfs/src/ffi.rs"
+        ]
+      },
+      {
+        "kind": "commands",
+        "hub": "docs/commands.md",
+        "sources": [
+          "crates/abitious/src/args.rs",
+          "crates/abitious/src/build.rs",
+          "crates/abitious/src/inspect.rs"
+        ]
+      }
+    ]
+  },
   "repo": {
     "type": "solo"
   },

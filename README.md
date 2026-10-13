@@ -64,6 +64,11 @@ abi inspect <file.node> [--json]
 abi inspect --decompress <file.node> [-o <out.node>]
 ```
 
+### Documentation
+
+- [API reference](docs/api.md)
+- [Command reference](docs/commands.md)
+
 ## Development
 
 ```sh
