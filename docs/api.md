@@ -34,7 +34,7 @@ The runtime FFI selects an available native module at load time. Node's built-in
 
 ## Platform C ABI
 
-Each platform package contains a shared library with four exported functions. Callers must pass UTF-8, NUL-terminated paths. The `abitius_ffi_version()` function returns ABI version `1`.
+Each platform package contains a shared library with four exported functions. Callers must pass UTF-8, NUL-terminated paths. The `abitious_ffi_version()` function returns ABI version `1`.
 
 | Function                                             | Return values and output                                                                                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
