@@ -5363,6 +5363,7 @@ test/fleet/unit/setup/lib/pnpm-path.test.mts
 
 # JS / npm distribution
 node_modules/
+!/npm/cli/targets.generated.json
 # Per-triple platform-package binaries are populated by CI (or locally for testing);
 # never committed. The package.json + README (codegen'd) are tracked.
 npm/*/stub.node

@@ -1,0 +1,67 @@
+{
+  "_generated": "scripts/repo/gen-packages.mts from scripts/repo/targets.mts — do not edit",
+  "stubNode": "stub.node",
+  "bindNode": "bind.node",
+  "targets": [
+    {
+      "triple": "darwin-arm64",
+      "os": "darwin",
+      "cpu": "arm64",
+      "bin": "abi",
+      "ffiArtifact": "libabitious_decmpfs.dylib"
+    },
+    {
+      "triple": "darwin-x64",
+      "os": "darwin",
+      "cpu": "x64",
+      "bin": "abi",
+      "ffiArtifact": "libabitious_decmpfs.dylib"
+    },
+    {
+      "triple": "linux-x64-gnu",
+      "os": "linux",
+      "cpu": "x64",
+      "libc": "glibc",
+      "bin": "abi",
+      "ffiArtifact": "libabitious_decmpfs.so"
+    },
+    {
+      "triple": "linux-arm64-gnu",
+      "os": "linux",
+      "cpu": "arm64",
+      "libc": "glibc",
+      "bin": "abi",
+      "ffiArtifact": "libabitious_decmpfs.so"
+    },
+    {
+      "triple": "linux-x64-musl",
+      "os": "linux",
+      "cpu": "x64",
+      "libc": "musl",
+      "bin": "abi",
+      "ffiArtifact": "libabitious_decmpfs.so"
+    },
+    {
+      "triple": "linux-arm64-musl",
+      "os": "linux",
+      "cpu": "arm64",
+      "libc": "musl",
+      "bin": "abi",
+      "ffiArtifact": "libabitious_decmpfs.so"
+    },
+    {
+      "triple": "win32-x64-msvc",
+      "os": "win32",
+      "cpu": "x64",
+      "bin": "abi.exe",
+      "ffiArtifact": "abitious_decmpfs.dll"
+    },
+    {
+      "triple": "win32-arm64-msvc",
+      "os": "win32",
+      "cpu": "arm64",
+      "bin": "abi.exe",
+      "ffiArtifact": "abitious_decmpfs.dll"
+    }
+  ]
+}
