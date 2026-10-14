@@ -158,6 +158,16 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then
             echo "CARGO_HTTP_CHECK_REVOKE=false" >> "$GITHUB_ENV"
           fi
+      - name: 'Download node.lib for Windows builds'
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = node -p "process.versions.node"
+          $architecture = node -p "process.arch"
+          $directory = Join-Path $env:RUNNER_TEMP 'node-lib'
+          New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          Invoke-WebRequest -Uri "https://nodejs.org/dist/v$version/win-$architecture/node.lib" -OutFile (Join-Path $directory 'node.lib')
+          "NODE_LIB_DIR=$directory" | Add-Content $env:GITHUB_ENV
       - name: 'Run tests'
         uses: ./.github/actions/fleet/run-script
         env:
