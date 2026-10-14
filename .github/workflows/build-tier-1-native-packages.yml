@@ -32,6 +32,7 @@ on:
     branches: [main]
     tags: ['v*']
     paths:
+      - '.cargo/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'crates/**'
@@ -44,6 +45,7 @@ on:
       - '.github/workflows/build-tier-1-native-packages.yml'
   pull_request:
     paths:
+      - '.cargo/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'crates/**'
@@ -75,6 +77,7 @@ defaults:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  RUST_TOOLCHAIN: nightly-2026-09-24
 
 jobs:
   # JS gates + the single-source-of-truth guard. No package install is needed for gen/tests
@@ -208,7 +211,7 @@ jobs:
       - name: Rust toolchain
         uses: ./.github/actions/fleet/setup-rust-toolchain
         with:
-          channel: nightly-2026-09-24
+          channel: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.rust }}
       - name: Rust cache
         uses: ./.github/actions/fleet/setup-rust-cache
@@ -216,9 +219,6 @@ jobs:
           workspaces: .
           prefix-key: ${{ matrix.triple }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Install the musl toolchain (musl targets only)
-        if: ${{ matrix.libc == 'musl' }}
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
       # The binder links node.lib (the node.exe import library) on Windows - the win-<arch>
       # dist folders publish it beside node.exe. Node comes from fleet setup.
       - name: Download node.lib (Windows targets only)
@@ -236,13 +236,24 @@ jobs:
       - name: Build the addon stubs, ffi self-extractor, and abi producer
         env:
           RUST_TARGET: ${{ matrix.rust }}
+          TARGET_LIBC: ${{ matrix.libc }}
         run: |
           set -euo pipefail
-          cargo build --locked -p abitious-decmpfs --release --target "$RUST_TARGET"
-          cargo build --locked -p abitious-bind --release --target "$RUST_TARGET"
-          cargo build --locked -p abitious-stub --release --target "$RUST_TARGET"
-          cargo build --locked -p abitious-ffi-stub --release --target "$RUST_TARGET"
-          cargo build --locked -p abitious --release --target "$RUST_TARGET"
+          cargo_args=(build --locked --release --target "$RUST_TARGET"
+            -p abitious-decmpfs -p abitious-bind -p abitious-stub
+            -p abitious-ffi-stub -p abitious)
+          if [ "$TARGET_LIBC" = musl ]; then
+            docker run --rm -v "$PWD:/workspace" -w /workspace \
+              -v "$HOME/.cargo/registry:/usr/local/cargo/registry" \
+              -e RUST_TOOLCHAIN -e CARGO_TERM_COLOR -e RUST_BACKTRACE \
+              -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=gcc \
+              -e CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=gcc \
+              rust:alpine@sha256:0cce0a5e0e8ba67b455257a3a02a1d99005f382748789d6464460028810f1627 \
+              sh -ec 'rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal; exec rustup run "$RUST_TOOLCHAIN" cargo "$@"' \
+              sh "${cargo_args[@]}"
+          else
+            cargo "${cargo_args[@]}"
+          fi
       - name: Copy native outputs into the platform package
         env:
           TRIPLE: ${{ matrix.triple }}
