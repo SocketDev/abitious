@@ -4,7 +4,9 @@
 # resulting dynamic musl `.node` is what Alpine's musl-linked Node `dlopen`s. Only
 # the musl targets get this; gnu/darwin/msvc are unaffected (target-scoped).
 [target.x86_64-unknown-linux-musl]
+linker = "musl-gcc"
 rustflags = ["-C", "target-feature=-crt-static"]
 
 [target.aarch64-unknown-linux-musl]
+linker = "musl-gcc"
 rustflags = ["-C", "target-feature=-crt-static"]
