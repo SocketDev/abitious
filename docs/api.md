@@ -32,6 +32,14 @@ The `nativeFfi` adapter provides `probe(path)`, `inspect(path)`, `compressFile(p
 
 The runtime FFI selects an available native module at load time. Node's built-in FFI is experimental and requires `--experimental-ffi` on Node 26. `nativeFfi` can be `undefined` when the runtime has no supported FFI module and the platform binder cannot load.
 
+## FFI carrier
+
+Use the `abi pack-ffi` command to wrap an existing shared library in a self-extracting `.node` file. The command needs the target shared library and a target triple. It does not invoke Cargo. The platform producer bundle includes a template for each of the eight supported targets. The producer checks `templates/manifest.json` and each template's SHA-512 before it uses a bundled template. Use `--template` to provide a template path explicitly.
+
+The carrier extracts the original library under `abitious-ffi-<uid>` in the OS temporary directory on Unix. Windows uses `abitious-ffi-<user>`. The filename contains the full SHA-512 and the platform library extension. The loader checks the FFI envelope, target metadata, and library hash. It stops when validation fails or when the cache path is unsafe. Darwin carriers require injection on a macOS host so the producer can sign the modified binary.
+
+The native workflow builds four targets on branch pushes and pull requests. A manual all-target run or a `v*` tag push builds all eight targets, including musl and Windows. The workflow tests template loading on the matching native runner. The aggregate archive is `abitious-ffi-producer-bundles.tar.gz` with a `.sha512` sidecar. Its Actions artifact has a maximum configured retention of 400 days and needs authenticated download access. A public release asset requires `release.githubAssetWorkflow` to name this workflow and the tag release pipeline to pass its publish-before-release gate.
+
 ## Platform C ABI
 
 Each platform package contains a shared library with four exported functions. Callers must pass UTF-8, NUL-terminated paths. The `abitious_ffi_version()` function returns ABI version `1`.

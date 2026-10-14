@@ -1,10 +1,9 @@
 # abitious FAST push/PR CI build (the tier-1 subset).
 #
 # This is the fast feedback build for pushes to main + PRs: it builds only the TIER-1
-# targets (native on their runner, no cross C toolchain). The full, all-target RELEASE
-# build (incl. musl + Windows) that ships tarballs to a GitHub Release lives in
-# github-release.yml, and the npm platform packages are built + published by
-# npm-publish.yml — so this workflow does NOT trigger on `release: published`.
+# targets (native on their runner, no cross C toolchain). A v* tag push builds all eight
+# targets and prepares a manifest-bound asset handoff for release-github.yml. npm packages
+# remain governed by the separate npm publish workflow and release approval.
 #
 # The build MATRIX is DERIVED from the single source of truth (scripts/repo/targets.mts) at CI
 # time: the `prepare` job runs `gen-packages --print-matrix` (the tier-1 subset) and the
@@ -16,12 +15,10 @@
 #   • check   — the JS gates + gen-then-check (single-source guard): gen --check, the vitest
 #               unit suites, and tsc typecheck.
 #   • prepare — emit the tier-1 matrix JSON from targets.mts.
-#   • build   — per tier-1 target, cross-build the generic stub cdylib + the host `abi`
-#               producer and package them into the @abitious/<triple> layout; upload as an
-#               artifact. Darwin targets run on macOS runners so the host `abi` producer
-#               (which ad-hoc re-signs injected Mach-O via apple-codesign at
-#               `abi build --compress` time) is itself a macOS build, and the darwin stub
-#               links against the macOS SDK.
+#   • build   — per selected target, build the addon stubs, the FFI self-extractor,
+#               and the host `abi` producer. Run `abi pack-ffi` on that target runner.
+#   • aggregate — on an all-target dispatch, verify all eight template artifacts from
+#                 this workflow SHA and upload a tar archive with a SHA-512 sidecar.
 #
 # The workflow uses fleet-owned setup, toolchain, cache, and artifact actions.
 # Each job bootstraps its checkout inline because a local action cannot run
@@ -33,6 +30,7 @@ run-name: 'build: ${{ github.ref_name }}'
 on:
   push:
     branches: [main]
+    tags: ['v*']
     paths:
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -124,6 +122,7 @@ jobs:
     runs-on: ubuntu-26.04
     outputs:
       matrix: ${{ steps.gen.outputs.matrix }}
+      allTargets: ${{ steps.gen.outputs.allTargets }}
     steps:
       - name: Bootstrap checkout
         shell: bash
@@ -143,6 +142,12 @@ jobs:
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${AUTH_B64}"
           git fetch --no-tags --depth 25 origin "${SOURCE_SHA}"
           git checkout -q --detach FETCH_HEAD
+      - name: Hydrate fleet payload
+        uses: ./.github/actions/fleet/checkout
+        with:
+          checkout: 'false'
+          payload-token-client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
+          payload-token-private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
       - name: Set up node
         uses: ./.github/actions/fleet/setup
         with:
@@ -151,7 +156,7 @@ jobs:
       - id: gen
         name: Derive the tier-1 matrix from targets.mts
         env:
-          ALL_TARGETS: ${{ github.event.inputs.all-targets }}
+          ALL_TARGETS: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || inputs.all-targets }}
         run: |
           set -euo pipefail
           if [ "$ALL_TARGETS" = "true" ]; then
@@ -160,8 +165,9 @@ jobs:
             matrix="$(node scripts/repo/gen-packages.mts --print-matrix)"
           fi
           echo "matrix={\"include\":${matrix}}" >> "$GITHUB_OUTPUT"
+          echo "allTargets=${ALL_TARGETS:-false}" >> "$GITHUB_OUTPUT"
 
-  # Cross-build the stub cdylib + host producer per target and package the @abitious/<triple>.
+  # Build each target's producer and self-extractor on its configured runner.
   build:
     name: Build (${{ matrix.triple }})
     needs: prepare
@@ -188,6 +194,12 @@ jobs:
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${AUTH_B64}"
           git fetch --no-tags --depth 25 origin "${SOURCE_SHA}"
           git checkout -q --detach FETCH_HEAD
+      - name: Hydrate fleet payload
+        uses: ./.github/actions/fleet/checkout
+        with:
+          checkout: 'false'
+          payload-token-client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
+          payload-token-private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
       - name: Set up node
         uses: ./.github/actions/fleet/setup
         with:
@@ -221,41 +233,184 @@ jobs:
           New-Item -ItemType Directory -Force $dir | Out-Null
           Invoke-WebRequest -Uri "https://nodejs.org/dist/$v/win-$arch/node.lib" -OutFile "$dir/node.lib"
           "NODE_LIB_DIR=$dir" | Add-Content $env:GITHUB_ENV
-      - name: Build the generic stub cdylib + the host abi producer
+      - name: Build the addon stubs, ffi self-extractor, and abi producer
         env:
           RUST_TARGET: ${{ matrix.rust }}
         run: |
           set -euo pipefail
-          cargo build -p abitious-decmpfs --release --target "$RUST_TARGET"
-          cargo build -p abitious-bind --release --target "$RUST_TARGET"
-          cargo build -p abitious-stub --release --target "$RUST_TARGET"
-          cargo build -p abitious --release --target "$RUST_TARGET"
-      - name: Stage the @abitious/${{ matrix.triple }} package
+          cargo build --locked -p abitious-decmpfs --release --target "$RUST_TARGET"
+          cargo build --locked -p abitious-bind --release --target "$RUST_TARGET"
+          cargo build --locked -p abitious-stub --release --target "$RUST_TARGET"
+          cargo build --locked -p abitious-ffi-stub --release --target "$RUST_TARGET"
+          cargo build --locked -p abitious --release --target "$RUST_TARGET"
+      - name: Stage and load the matching ffi template
         env:
           TRIPLE: ${{ matrix.triple }}
           RUST_TARGET: ${{ matrix.rust }}
           STUB_ARTIFACT: ${{ matrix.stubArtifact }}
           BIND_ARTIFACT: ${{ matrix.bindArtifact }}
+          FFI_STUB_ARTIFACT: ${{ matrix.ffiStubArtifact }}
           FFI_ARTIFACT: ${{ matrix.ffiArtifact }}
+          LIBC: ${{ matrix.libc }}
           BIN: ${{ matrix.bin }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           node scripts/repo/gen-packages.mts
           dest="npm/${TRIPLE}"
           out="target/${RUST_TARGET}/release"
+          part=".cache/fleet/ffi-source-part"
+          smoke=".cache/fleet/ffi-template-smoke/${TRIPLE}"
           cp "${out}/${STUB_ARTIFACT}" "${dest}/stub.node"
           cp "${out}/${BIND_ARTIFACT}" "${dest}/bind.node"
           cp "${out}/${FFI_ARTIFACT}" "${dest}/${FFI_ARTIFACT}"
           cp "${out}/${BIN}" "${dest}/${BIN}"
+          cp LICENSE "${dest}/LICENSE"
+          cp npm/THIRD-PARTY-NOTICES.md "${dest}/THIRD-PARTY-NOTICES.md"
+          mkdir -p "${smoke}"
+          node scripts/repo/ffi-templates.mts stage \
+            --target "${TRIPLE}" \
+            --package "${dest}" \
+            --template "${out}/${FFI_STUB_ARTIFACT}" \
+            --producer-sha "${SOURCE_SHA}" \
+            --out "${part}"
+          "${out}/${BIN}" pack-ffi "${out}/${FFI_ARTIFACT}" \
+            --target "${TRIPLE}" \
+            --template "${part}/template/ffi-stub.node" \
+            --out "${smoke}/packed.node"
+          smoke_node=(node)
+          if [ "${LIBC}" = "musl" ]; then
+            smoke_node=(docker run --rm -v "$PWD:/workspace" -w /workspace node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 node)
+            carrier="/workspace/${smoke}/packed.node"
+            input="/workspace/${out}/${FFI_ARTIFACT}"
+          else
+            carrier="${smoke}/packed.node"
+            input="${out}/${FFI_ARTIFACT}"
+          fi
+          "${smoke_node[@]}" --input-type=commonjs -e '
+            const assert = require("node:assert/strict");
+            const crypto = require("node:crypto");
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const carrier = path.resolve(process.argv[1]);
+            const input = process.argv[2];
+            const addon = require(carrier);
+            assert.equal(typeof addon.libraryPath, "string");
+            const hash = file => crypto.createHash("sha512").update(fs.readFileSync(file)).digest("hex");
+            assert.equal(hash(addon.libraryPath), hash(input));
+          ' "${carrier}" "${input}"
           ls -la "${dest}"
       - name: Upload artifact
         uses: ./.github/actions/fleet/upload-artifact
         with:
-          name: abitious-${{ matrix.triple }}
-          path: npm/${{ matrix.triple }}
+          name: abitious-ffi-source-${{ matrix.triple }}
+          path: .cache/fleet/ffi-source-part
           if-no-files-found: error
       - name: Save Rust cache
         if: ${{ !cancelled() }}
         uses: ./.github/actions/fleet/setup-rust-cache
         with:
           phase: save
+
+  aggregate:
+    name: Aggregate complete producer bundles
+    needs: [prepare, build]
+    if: ${{ needs.prepare.outputs.allTargets == 'true' && needs.build.result == 'success' }}
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Bootstrap checkout
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git init -q
+          git config --local advice.detachedHead false
+          git remote add origin "${SERVER_URL}/${REPOSITORY}"
+          AUTH_B64="$(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 | tr -d '\n')"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.${SERVER_URL}/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${AUTH_B64}"
+          git fetch --no-tags --depth 25 origin "${SOURCE_SHA}"
+          git checkout -q --detach FETCH_HEAD
+      - name: Hydrate fleet payload
+        uses: ./.github/actions/fleet/checkout
+        with:
+          checkout: 'false'
+          payload-token-client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
+          payload-token-private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
+      - name: Set up node
+        uses: ./.github/actions/fleet/setup
+        with:
+          node-version: 24
+          socket-api-token: ${{ secrets.SOCKET_API_TOKEN_FOR_CLI_AND_SFW }}
+      - name: Download template parts from this workflow run
+        uses: ./.github/actions/fleet/download-artifact
+        with:
+          path: .cache/fleet/ffi-template-parts
+      - name: Verify and assemble platform producer bundles
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          node scripts/repo/ffi-templates.mts aggregate \
+            --parts .cache/fleet/ffi-template-parts \
+            --producer-sha "${SOURCE_SHA}" \
+            --out .cache/fleet/ffi-producer-bundles
+          host_bundle=.cache/fleet/ffi-producer-bundles/linux-x64-gnu
+          "${host_bundle}/abi" pack-ffi \
+            "${host_bundle}/libabitious_decmpfs.so" \
+            --target linux-x64-gnu \
+            --out .cache/fleet/packed-ffi-smoke.node
+          node --input-type=commonjs -e '
+            const assert = require("node:assert/strict");
+            const crypto = require("node:crypto");
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const carrier = require(path.resolve(process.argv[1]));
+            const hash = file => crypto.createHash("sha512").update(fs.readFileSync(file)).digest("hex");
+            assert.equal(typeof carrier.libraryPath, "string");
+            assert.equal(hash(carrier.libraryPath), hash(process.argv[2]));
+          ' .cache/fleet/packed-ffi-smoke.node "${host_bundle}/libabitious_decmpfs.so"
+          tar -czf .cache/fleet/abitious-ffi-producer-bundles.tar.gz \
+            -C .cache/fleet ffi-producer-bundles
+          (
+            cd .cache/fleet
+            shasum -a 512 abitious-ffi-producer-bundles.tar.gz \
+              > abitious-ffi-producer-bundles.tar.gz.sha512
+            stat -c 'FFI producer bundle: %s bytes' \
+              abitious-ffi-producer-bundles.tar.gz
+          )
+      - name: Prepare tag release asset handoff
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+        id: release-assets
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_ASSETS: |
+            .cache/fleet/abitious-ffi-producer-bundles.tar.gz
+            .cache/fleet/abitious-ffi-producer-bundles.tar.gz.sha512
+        run: node scripts/fleet/release/github/assets.mts --prepare
+      - name: Expose artifact-service runtime
+        uses: ./.github/actions/fleet/expose-actions-runtime
+      - name: Upload complete producer bundles
+        env:
+          RETENTION_DAYS: '400'
+        run: |
+          set -euo pipefail
+          node scripts/fleet/artifact/upload.mts \
+            --name abitious-ffi-producer-bundles \
+            --path .cache/fleet/abitious-ffi-producer-bundles.tar.gz \
+            --path .cache/fleet/abitious-ffi-producer-bundles.tar.gz.sha512 \
+            --retention-days "${RETENTION_DAYS}"
+      - name: Upload manifest-bound release handoff
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          RELEASE_ASSET_PATH: ${{ steps.release-assets.outputs.path }}
+        run: |
+          set -euo pipefail
+          node scripts/fleet/artifact/upload.mts \
+            --name github-release-assets \
+            --path "${RELEASE_ASSET_PATH}"

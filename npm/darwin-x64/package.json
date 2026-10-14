@@ -14,11 +14,22 @@
     "x64"
   ],
   "files": [
+    "LICENSE",
     "README.md",
+    "THIRD-PARTY-NOTICES.md",
     "abi",
     "bind.node",
     "libabitious_decmpfs.dylib",
-    "stub.node"
+    "stub.node",
+    "templates/darwin-arm64/ffi-stub.node",
+    "templates/darwin-x64/ffi-stub.node",
+    "templates/linux-arm64-gnu/ffi-stub.node",
+    "templates/linux-arm64-musl/ffi-stub.node",
+    "templates/linux-x64-gnu/ffi-stub.node",
+    "templates/linux-x64-musl/ffi-stub.node",
+    "templates/manifest.json",
+    "templates/win32-arm64-msvc/ffi-stub.node",
+    "templates/win32-x64-msvc/ffi-stub.node"
   ],
   "publishConfig": {
     "access": "public",

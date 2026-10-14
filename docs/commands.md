@@ -28,6 +28,32 @@ abi build --release --compress -p addon --out dist/addon.node
 
 The command runs Cargo and writes the output file. With `--compress`, it also writes a temporary file before replacing the requested output. On macOS the producer ad-hoc re-signs the stub after injecting the pressed-data section.
 
+## `abi pack-ffi`
+
+```sh
+abi pack-ffi <shared-library> --target <triple> --out <file.node> [--template PATH] [--compress-level N]
+```
+
+`pack-ffi` packages an existing native shared library in a self-extracting `.node` carrier. It does not run Cargo or require a Rust toolchain. Select the target of the library, such as `linux-x64-gnu` or `darwin-arm64`. The producer checks the library format and target before it writes the output.
+
+| Option               | Effect                                                                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `--target TRIPLE`    | Select the library target. The value must match a supported target.                                                                   |
+| `--template PATH`    | Use this target's self-extracting N-API template. If omitted, the producer verifies the bundled template manifest and SHA-512 hashes. |
+| `--compress-level N` | Set the zstd level. The default is `16`; compression clamps values to `1`–`22`.                                                       |
+| `--out PATH`         | Write the carrier to this path.                                                                                                       |
+| `-h`, `--help`       | Print usage and exit successfully.                                                                                                    |
+
+Example:
+
+```sh
+abi pack-ffi target/release/libabitious_decmpfs.so --target linux-x64-gnu --out dist/abitious.node
+```
+
+When Node loads the carrier, it extracts the library to the OS temporary directory under `abitious-ffi-<uid>` on Unix or `abitious-ffi-<user>` on Windows. The filename contains the full SHA-512 and the platform library extension. The template rejects an invalid envelope, a target mismatch, a hash mismatch, or an unsafe cache path. It removes partial output when extraction fails. Darwin injection requires a macOS host because the producer must sign the modified binary.
+
+The producer bundles include all eight target templates. The `build:tier-1-native-packages` workflow builds four native targets for push and pull request checks. Set `all-targets` in a manual workflow run, or push a `v*` tag, to build and aggregate all eight targets. The workflow artifact contains `abitious-ffi-producer-bundles.tar.gz` and its `.sha512` sidecar. It is available for up to 400 days, subject to repository retention policy, and needs authenticated access. A public, durable download requires the tag release asset pipeline and its publish-before-release gate.
+
 ## `abi inspect`
 
 ```sh

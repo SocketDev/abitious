@@ -4,7 +4,7 @@
 //   node scripts/repo/gen-packages.mts                  write all generated files
 //   node scripts/repo/gen-packages.mts --check          fail (exit 1) if any is out of sync
 //   node scripts/repo/gen-packages.mts --print-matrix       print the tier-1 push/PR CI matrix
-//   node scripts/repo/gen-packages.mts --print-matrix-all   print the full release matrix (all targets)
+//   node scripts/repo/gen-packages.mts --print-matrix-all   print the full target matrix (all targets)
 //
 // Generated outputs (each also verified by --check):
 //   • npm/<triple>/package.json         one per TARGETS entry (os/cpu/libc-gated)
@@ -28,7 +28,9 @@ import {
   abiBin,
   BIND_NODE,
   bindArtifact,
+  FFI_STUB_NODE,
   ffiArtifact,
+  ffiStubArtifact,
   STUB_NODE,
   stubArtifact,
   TARGETS,
@@ -87,6 +89,12 @@ function main(): number {
         BIND_NODE,
         bin,
         ffiArtifact(target.os),
+        'LICENSE',
+        'THIRD-PARTY-NOTICES.md',
+        'templates/manifest.json',
+        ...TARGETS.map(
+          template => `templates/${template.triple}/${FFI_STUB_NODE}`,
+        ),
         'README.md',
       ].toSorted(),
       publishConfig: PUBLISH_CONFIG,
@@ -131,12 +139,10 @@ function main(): number {
   /**
    * The CI build matrix `include:` array, derived from TARGETS. Default
    * (`all=false`) is the tier-1 subset — native on their runner, no cross C
-   * toolchain — for the fast push/PR CI (build.yml). `all=true` is the full,
-   * unfiltered set for the release build (github-release.yml +
-   * npm-publish.yml), where the musl C toolchain is installed per-target. Every
-   * target ships a prebuilt, so the release set is never filtered down. Either
-   * way the triple list is never duplicated in YAML — both are single-sourced
-   * from TARGETS.
+   * toolchain — for fast push/PR CI. `all=true` is the full,
+   * unfiltered set for a manual full-build dispatch. The musl C toolchain is
+   * installed per-target. Every target ships a prebuilt, so this set is never
+   * filtered down. The triple list is single-sourced from TARGETS.
    */
   function matrix(all = false): unknown[] {
     return TARGETS.filter(t => all || t.tier1).map(t => ({
@@ -149,6 +155,7 @@ function main(): number {
       runner: t.runner,
       stubArtifact: stubArtifact(t.os),
       bindArtifact: bindArtifact(t.os),
+      ffiStubArtifact: ffiStubArtifact(t.os),
       bin: abiBin(t.os),
       ffiArtifact: ffiArtifact(t.os),
     }))

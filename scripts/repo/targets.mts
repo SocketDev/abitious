@@ -6,8 +6,8 @@
 //                                                   + npm/cli/targets.generated.json (loader data)
 //   2. the runtime loader (npm/cli/index.cjs)     → via the generated targets.generated.json
 //   3. the CI matrices (.github/workflows/*.yml) → via `gen-packages --print-matrix`
-//      (build.yml, the tier-1 push/PR subset) and `--print-matrix-all` (github-release.yml
-//      + npm-publish.yml, all targets for a release)
+//      (tier-1 push/PR subset) and `--print-matrix-all` (all targets for a manual
+//      full-build dispatch)
 //   4. the Rust stub auto-resolver (crates/abitious/src/triple.rs) → the SAME
 //      `<os>-<arch>[-<abi>]` naming rule, locked by a table-driven unit test.
 //
@@ -44,12 +44,10 @@ export interface Target {
    */
   runner: string
   /**
-   * Tier-1 targets build in the FAST push/PR CI matrix (build.yml) — native on
-   * their runner, no cross C toolchain. Tier-2 targets — musl (zstd-sys needs a
-   * musl C toolchain) and Windows — are EXCLUDED from that fast subset
-   * (`--print-matrix`) but ARE built + shipped in the full RELEASE matrix
-   * (`--print-matrix-all`, used by github-release.yml + npm-publish.yml). Every
-   * target is always generated as an.
+   * Tier-1 targets build in the fast push/PR matrix — native on their runner.
+   * Musl and Windows targets are excluded from that subset. A manual full-build
+   * dispatch selects all targets with `--print-matrix-all`. Every target has a
+   * generated platform package and optional dependency.
    *
    * @abitious/<triple> manifest + optionalDependency regardless of tier; `tier1` only
    * selects the fast push/PR build subset.
@@ -155,6 +153,11 @@ export const STUB_NODE = 'stub.node'
 export const BIND_NODE = 'bind.node'
 
 /**
+ * The self-extracting N-API template file stored for each supported target.
+ */
+export const FFI_STUB_NODE = 'ffi-stub.node'
+
+/**
  * The cargo cdylib basename for the in-process binder on `os`. Kept in lockstep
  * with `abitious-bind`'s `[lib]` (crate name `abitious_bind`, dashes ->
  * underscores).
@@ -167,6 +170,20 @@ export function bindArtifact(os: string): string {
       return 'abitious_bind.dll'
     default:
       return 'libabitious_bind.so'
+  }
+}
+
+/**
+ * The Cargo cdylib name for the FFI self-extractor template on `os`.
+ */
+export function ffiStubArtifact(os: string): string {
+  switch (os) {
+    case 'darwin':
+      return 'libabitious_ffi_stub.dylib'
+    case 'win32':
+      return 'abitious_ffi_stub.dll'
+    default:
+      return 'libabitious_ffi_stub.so'
   }
 }
 

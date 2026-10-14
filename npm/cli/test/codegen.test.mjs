@@ -4,11 +4,14 @@
 // darwin targets on macOS runners. Run: `pnpm test` npm/cli/test/codegen.test.mjs.
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
 import { spawnSync } from '@socketsecurity/lib-stable/process/spawn/child'
 import { test } from 'vitest'
+
+import { FFI_STUB_NODE, TARGETS } from '../../../scripts/repo/targets.mts'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(here, '..', '..', '..')
@@ -30,12 +33,8 @@ test('gen-packages --check reports the committed files in sync with targets.mts'
 })
 
 test('gen-packages --print-matrix derives the tier-1 CI targets from the source of truth', () => {
-  // The CI BUILD matrix is the tier-1 subset — native on their runner, no cross C
-  // toolchain: darwin arm64/x64 + linux x64/arm64-gnu. musl (needs a musl C
-  // cross-toolchain for zstd-sys) and Windows are tier-2: still generated as
-  // @abitious/<triple> manifests + optionalDependencies (asserted in sync by the
-  // --check test above), but excluded from the CI build until their toolchains /
-  // validation land. Promote by flipping `tier1` in targets.mts.
+  // The fast CI matrix is native on each runner: darwin arm64/x64 and linux
+  // x64/arm64-gnu. Musl and Windows are included in the manual full-build matrix.
   const matrix = JSON.parse(run('--print-matrix'))
   // map() returns a fresh array and Node 18 lacks toSorted().
   // oxlint-disable-next-line unicorn/no-array-sort -- fresh array sort
@@ -48,11 +47,9 @@ test('gen-packages --print-matrix derives the tier-1 CI targets from the source 
   ])
 })
 
-test('gen-packages --print-matrix-all derives the full release target set (all 8)', () => {
-  // The RELEASE build matrix (github-release.yml + npm-publish.yml) is the FULL,
-  // unfiltered target set — every @abitious/<triple> ships a prebuilt, so all 8 must
-  // build (the tier-1 filter is only the fast push/PR subset). Single-sourced from
-  // targets.mts, so the triple list is never duplicated in YAML.
+test('gen-packages --print-matrix-all derives the full target set (all 8)', () => {
+  // The manual full-build dispatch uses this unfiltered set. Every target ships a
+  // prebuilt, so this matrix contains all eight entries from targets.mts.
   const matrix = JSON.parse(run('--print-matrix-all'))
   // map() returns a fresh array and Node 18 lacks toSorted().
   // oxlint-disable-next-line unicorn/no-array-sort -- fresh array sort
@@ -67,8 +64,8 @@ test('gen-packages --print-matrix-all derives the full release target set (all 8
     'win32-arm64-msvc',
     'win32-x64-msvc',
   ])
-  // Every entry carries the fields the release workflow consumes, incl. `libc` (the
-  // musl toolchain gate) which is present (non-empty) for the two musl targets.
+  // Every entry carries the fields the build workflow consumes. The `libc` value
+  // selects musl toolchain setup for the two musl targets.
   const musl = matrix.filter(m => m.libc === 'musl').map(m => m.triple)
   // map() returns a fresh array and Node 18 lacks toSorted().
   // oxlint-disable-next-line unicorn/no-array-sort -- fresh array sort
@@ -78,6 +75,10 @@ test('gen-packages --print-matrix-all derives the full release target set (all 8
     assert.ok(entry.rust, `${entry.triple} needs a rust target`)
     assert.ok(entry.runner, `${entry.triple} needs a runner`)
     assert.ok(entry.stubArtifact, `${entry.triple} needs a stub artifact name`)
+    assert.ok(
+      entry.ffiStubArtifact,
+      `${entry.triple} needs an FFI template artifact`,
+    )
     assert.ok(entry.bin, `${entry.triple} needs a bin name`)
   }
 })
@@ -96,5 +97,26 @@ test('darwin targets build on macOS runners (so the producer resign step runs)',
     assert.ok(entry.rust, `${entry.triple} needs a rust target`)
     assert.ok(entry.stubArtifact, `${entry.triple} needs a stub artifact name`)
     assert.ok(entry.bin, `${entry.triple} needs a bin name`)
+  }
+})
+
+test('platform package manifests carry every foreign FFI template and its index', () => {
+  for (const target of TARGETS) {
+    const manifest = JSON.parse(
+      readFileSync(
+        path.join(repoRoot, 'npm', target.triple, 'package.json'),
+        'utf8',
+      ),
+    )
+    assert.ok(manifest.files.includes('LICENSE'))
+    assert.ok(manifest.files.includes('THIRD-PARTY-NOTICES.md'))
+    assert.ok(manifest.files.includes('templates/manifest.json'))
+    for (const template of TARGETS) {
+      assert.ok(
+        manifest.files.includes(
+          `templates/${template.triple}/${FFI_STUB_NODE}`,
+        ),
+      )
+    }
   }
 })
