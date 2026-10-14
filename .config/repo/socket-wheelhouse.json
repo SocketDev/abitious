@@ -35,6 +35,9 @@
     "from": "crates-registry",
     "type": "rust"
   },
+  "coverage": {
+    "include": ["npm/cli/*.{cjs,js,mjs}"]
+  },
   "secondaries": [
     {
       "from": "npm-registry",
