@@ -353,7 +353,6 @@ mod tests {
         for _ in 0..6 {
             let destination = destination.clone();
             let bytes = bytes.clone();
-            let expected = expected;
             writers.push(std::thread::spawn(move || {
                 write_atomic(&destination, &bytes, &expected, "linux-x64-gnu")
             }));
