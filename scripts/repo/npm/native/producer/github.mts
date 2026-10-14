@@ -1,19 +1,9 @@
-import {
-  closeSync,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  mkdtempSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import crypto from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 
+import { safeDeleteSync } from '@socketsecurity/lib-stable/fs/safe'
 import {
   downloadGithubDispatchApi,
   requestGithubDispatchApi,
@@ -26,10 +16,13 @@ import type {
   NativeArtifact,
   NativeWorkflowRun,
 } from '../../native-validation.mts'
+import { PRODUCER_WORKFLOW, readIntent, writeIntent } from './intent.mts'
+import type { DispatchIntent } from './intent.mts'
 
-export const PRODUCER_WORKFLOW =
-  '.github/workflows/build-tier-1-native-packages.yml'
-export const POLL_INTERVAL_MS = 5_000
+export { PRODUCER_WORKFLOW }
+export { readIntent, writeIntent }
+export type { DispatchIntent }
+export const POLL_INTERVAL_MS = 5000
 export const DEADLINE_MS = 60 * 60 * 1000
 const MAX_RUN_PAGES = 10
 const MAX_ARTIFACT_PAGES = 5
@@ -45,7 +38,13 @@ export interface ResolvedNativeProducerArtifact {
 export interface NativeProducerDependencies {
   request: (
     endpoint: string,
-    options?: { method?: 'GET' | 'POST'; input?: unknown; deadlineMs?: number },
+    options?:
+      | {
+          method?: 'GET' | 'POST' | undefined
+          input?: unknown | undefined
+          deadlineMs?: number | undefined
+        }
+      | undefined,
   ) => Promise<Buffer>
   download: (
     endpoint: string,
@@ -61,7 +60,7 @@ export interface ResolveNativeProducerConfig {
   sourceSha: string
   workflowPath: string
   receiptPath: string
-  dependencies?: Partial<NativeProducerDependencies>
+  dependencies?: Partial<NativeProducerDependencies> | undefined
 }
 
 export interface DownloadPinnedNativeProducerArtifactsConfig {
@@ -70,8 +69,8 @@ export interface DownloadPinnedNativeProducerArtifactsConfig {
   runId: number
   runAttempt: number
   workflowPath: string
-  artifacts: readonly Pick<NativeArtifact, 'id' | 'name' | 'digest'>[]
-  dependencies?: Partial<NativeProducerDependencies>
+  artifacts: ReadonlyArray<Pick<NativeArtifact, 'id' | 'name' | 'digest'>>
+  dependencies?: Partial<NativeProducerDependencies> | undefined
 }
 
 interface WorkflowListing {
@@ -80,7 +79,7 @@ interface WorkflowListing {
 }
 
 export interface NativeProducerRun extends NativeWorkflowRun {
-  head_branch?: string
+  head_branch?: string | undefined
   run_attempt: number
 }
 
@@ -96,24 +95,12 @@ interface JobsListing {
   total_count: number
 }
 
-export interface DispatchIntent {
-  version: 1
-  repository: string
-  sourceSha: string
-  workflowPath: string
-  defaultBranch: string
-  baselineRunIds: number[]
-  dispatchAttempted: boolean
-  runId?: number
-  runAttempt?: number
-}
-
 export const defaultDependencies: NativeProducerDependencies = {
-  request: requestGithubDispatchApi,
   download: downloadGithubDispatchApi,
+  now: Date.now,
+  request: requestGithubDispatchApi,
   sleep: async milliseconds =>
     await new Promise(resolve => setTimeout(resolve, milliseconds)),
-  now: Date.now,
 }
 
 export function githubJson<T>(bytes: Buffer): T {
@@ -144,7 +131,7 @@ export async function listWorkflowRuns(
   repository: string,
   workflowPath: string,
   sourceSha: string,
-  deadlineMs?: number,
+  deadlineMs?: number | undefined,
 ): Promise<ProducerRun[]> {
   const rows: ProducerRun[] = []
   let pages = 1
@@ -167,7 +154,7 @@ export async function listWorkflowRuns(
       pages = checkedPageCount(totalCount, 100, MAX_RUN_PAGES)
     }
     rows.push(...listing.workflow_runs)
-    if (rows.length > 1_000) {
+    if (rows.length > 1000) {
       throw new Error(
         'GitHub workflow listing is too large. Where: Actions API. Saw more than 1,000 runs; wanted bounded producer lookup. Fix: filter the workflow history.',
       )
@@ -194,61 +181,6 @@ export function exactSourceRuns(
         run.event === 'workflow_dispatch',
     )
     .toSorted((left, right) => right.id - left.id)
-}
-
-export function readIntent(receiptPath: string): DispatchIntent | undefined {
-  if (!existsSync(receiptPath)) return undefined
-  try {
-    const value = JSON.parse(
-      readFileSync(receiptPath, 'utf8'),
-    ) as DispatchIntent
-    if (
-      value.version === 1 &&
-      /^[\w.-]+\/[\w.-]+$/u.test(value.repository) &&
-      /^[a-f0-9]{40}$/u.test(value.sourceSha) &&
-      value.workflowPath === PRODUCER_WORKFLOW &&
-      typeof value.defaultBranch === 'string' &&
-      Array.isArray(value.baselineRunIds) &&
-      value.baselineRunIds.every(id => Number.isSafeInteger(id) && id > 0) &&
-      typeof value.dispatchAttempted === 'boolean' &&
-      (value.runId === undefined ||
-        (Number.isSafeInteger(value.runId) && value.runId > 0)) &&
-      (value.runAttempt === undefined ||
-        (Number.isSafeInteger(value.runAttempt) && value.runAttempt > 0))
-    ) {
-      return value
-    }
-  } catch (cause) {
-    throw new Error(
-      'Native producer intent is unreadable. Where: dispatch receipt. Saw invalid JSON; wanted a durable retry record. Fix: inspect the intent before dispatching again.',
-      { cause },
-    )
-  }
-  throw new Error(
-    'Native producer intent is invalid. Where: dispatch receipt. Saw a malformed or incomplete retry record; wanted a durable source-bound intent. Fix: inspect the intent before dispatching again.',
-  )
-}
-
-export function writeIntent(receiptPath: string, intent: DispatchIntent): void {
-  const directory = path.dirname(receiptPath)
-  const temporary = `${receiptPath}.${process.pid}.tmp`
-  mkdirSync(directory, { recursive: true })
-  writeFileSync(temporary, `${JSON.stringify(intent, null, 2)}\n`, {
-    mode: 0o600,
-  })
-  const file = openSync(temporary, 'r')
-  try {
-    fsyncSync(file)
-  } finally {
-    closeSync(file)
-  }
-  renameSync(temporary, receiptPath)
-  const directoryHandle = openSync(directory, 'r')
-  try {
-    fsyncSync(directoryHandle)
-  } finally {
-    closeSync(directoryHandle)
-  }
 }
 
 export async function listJobs(
@@ -473,6 +405,6 @@ export async function downloadArtifacts(
     }
     return result
   } finally {
-    rmSync(scratch, { recursive: true, force: true })
+    safeDeleteSync(scratch)
   }
 }
