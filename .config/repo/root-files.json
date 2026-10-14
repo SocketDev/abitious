@@ -1,5 +1,6 @@
 {
   "allow": {
+    "include": "public C ABI headers for the published native library",
     "npm": "per-platform npm packaging dirs (cli + prebuilt binary packages) that npm publish tooling anchors at the repo root"
   }
 }

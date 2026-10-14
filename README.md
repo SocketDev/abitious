@@ -33,10 +33,10 @@ enabled by the host runtime.
 
 `@abitious/cli` picks the first in-process surface the runtime offers:
 
-1. `node:ffi` — Node 26+ (flag-gated: `--experimental-ffi`), calling the C ABI
+1. `node:ffi`: Node 26+ (flag-gated with `--experimental-ffi`), calling the C ABI
    above.
-2. `node:smol-ffi` — where exposed.
-3. `bind.node` — the prebuilt binder addon in the same platform package
+2. `node:smol-ffi`, where exposed.
+3. `bind.node`, the prebuilt binder addon in the same platform package
    (`@abitious/<triple>`), linking the `decmpfs` engine directly. Covers Node 24
    and older, no flags.
 4. Otherwise `nativeFfi` is `undefined` and the library path remains available

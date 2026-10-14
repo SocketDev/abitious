@@ -1,5 +1,5 @@
 {
-  "name": "local-abitious",
+  "name": "abitious",
   "version": "0.0.0",
   "private": true,
   "description": "Workspace root for the abitious npm distribution (@abitious/cli + per-triple platform packages). The crates are the Cargo workspace; this drives codegen, typecheck, and the JS tests.",

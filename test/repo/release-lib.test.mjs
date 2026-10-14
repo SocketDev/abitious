@@ -34,7 +34,7 @@ void test('resolveRelease: prerelease hint finalizes, arg bumps, else as-committ
 })
 
 const CARGO = `[workspace]
-members = ["crates/a"]
+members = ["crates/fixture"]
 
 [workspace.package]
 version = "0.1.0"
