@@ -327,6 +327,13 @@ export async function restoreNativePackages(): Promise<void> {
   })
   safeDeleteSync(RECEIPT_PATH)
   renameSync(pending, RECEIPT_PATH)
+  const envPath = getEnvValue('GITHUB_ENV')
+  if (envPath) {
+    appendFileSync(
+      envPath,
+      `NATIVE_PUBLISH_RUN_ATTEMPT=${parent.run.run_attempt}\n`,
+    )
+  }
   const outputPath = getEnvValue('GITHUB_OUTPUT')
   if (outputPath) {
     appendFileSync(
