@@ -1,3 +1,4 @@
+import process from 'node:process'
 import { parseArgs } from 'node:util'
 
 import { spawn } from '@socketsecurity/lib-stable/process/spawn/child'
@@ -24,6 +25,7 @@ export async function buildNativeWorkspace(): Promise<void> {
   }
   const result = await spawn('cargo', args, {
     cwd: REPO_ROOT,
+    shell: process.platform === 'win32',
     stdio: scriptStdio('inherit'),
   })
   if (result.code !== 0) {
