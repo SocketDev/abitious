@@ -61,7 +61,7 @@ async function runStage(libc: 'gnu' | 'musl') {
     assert.ok(step)
     const env = {
       ...process.env,
-      PATH: `${bin}:${process.env.PATH}`,
+      PATH: `${bin}:${process.env['PATH']}`,
       PWD: root,
       DOCKER_LOG: log,
       NODE_LOG: path.join(root, 'node.log'),
