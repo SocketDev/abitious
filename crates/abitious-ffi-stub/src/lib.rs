@@ -3,6 +3,10 @@
 mod cache;
 mod napi;
 
+/// Node's entry point for the FFI carrier addon.
+///
+/// # Safety
+/// Node must call this with valid handles from the same live N-API environment.
 #[no_mangle]
 pub unsafe extern "C" fn napi_register_module_v1(
     env: napi::NapiEnv,
