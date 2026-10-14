@@ -38,6 +38,10 @@
   "coverage": {
     "include": ["npm/cli/*.{cjs,js,mjs}"]
   },
+  "fuzz": {
+    "exempt": true,
+    "reason": "The JavaScript files select and load platform packages; all untrusted binary parsing is in Rust and has cargo-fuzz targets under fuzz/Cargo.toml."
+  },
   "secondaries": [
     {
       "from": "npm-registry",
