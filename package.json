@@ -198,6 +198,7 @@
     "test:fix": "node scripts/fleet/test/fix.mts",
     "test:mid": "node scripts/fleet/test/mid.mts",
     "test:profile": "node scripts/fleet/test/profile.mts",
+    "test:rust": "node scripts/repo/test/native.mts",
     "test:slow": "node scripts/fleet/test/slow.mts",
     "test:test": "node scripts/fleet/commands/run.mts test test",
     "test:update": "node scripts/fleet/commands/run.mts test update",

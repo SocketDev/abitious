@@ -23,13 +23,17 @@
         "sources": [
           "crates/abitious/src/args.rs",
           "crates/abitious/src/build.rs",
-          "crates/abitious/src/inspect.rs"
+          "crates/abitious/src/inspect.rs",
+          "crates/abitious/src/pack_ffi.rs"
         ]
       }
     ]
   },
   "repo": {
     "type": "solo"
+  },
+  "release": {
+    "githubAssetWorkflow": "build-tier-1-native-packages.yml"
   },
   "build": {
     "from": "crates-registry",
