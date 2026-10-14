@@ -13,16 +13,20 @@ import path from 'node:path'
 import { safeDeleteSync } from '@socketsecurity/lib-stable/fs/safe'
 import { test } from 'vitest'
 
-import { aggregateFfiTemplateParts } from '../../../scripts/repo/ffi-templates.mts'
-import { abiBin, TARGETS } from '../../../scripts/repo/targets.mts'
+import { aggregateFfiTemplateParts } from '../../scripts/repo/ffi-templates.mts'
+import type {
+  FfiProducerBundleManifest,
+  FfiTemplateManifest,
+} from '../../scripts/repo/ffi-templates.mts'
+import { abiBin, TARGETS } from '../../scripts/repo/targets.mts'
 
 const producerSha = 'a'.repeat(40)
 
-function hash(bytes) {
+function hash(bytes: string | Uint8Array): string {
   return crypto.createHash('sha512').update(bytes).digest('hex')
 }
 
-function createParts(root) {
+function createParts(root: string): string {
   const parts = path.join(root, 'parts')
   mkdirSync(parts)
   for (const target of TARGETS) {
@@ -69,10 +73,10 @@ function createParts(root) {
   return parts
 }
 
-function addMacosSigningReceipts(parts) {
+function addMacosSigningReceipts(parts: string): void {
   const darwinTargets = TARGETS.filter(item => item.os === 'darwin')
   for (let index = 0, { length } = darwinTargets; index < length; index += 1) {
-    const target = darwinTargets[index]
+    const target = darwinTargets[index]!
     const directory = path.join(parts, `abitious-ffi-source-${target.triple}`)
     const packageDirectory = path.join(directory, 'package')
     for (const name of [
@@ -122,7 +126,9 @@ test('aggregation builds all producer bundles with verified eight-target templat
     for (const target of TARGETS) {
       const bundle = path.join(out, target.triple)
       const manifestPath = path.join(bundle, 'templates', 'manifest.json')
-      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+      const manifest = JSON.parse(
+        readFileSync(manifestPath, 'utf8'),
+      ) as FfiTemplateManifest
       assert.equal(manifest.producerSha, producerSha)
       assert.equal(manifest.templates.length, TARGETS.length)
       for (const row of manifest.templates) {
@@ -142,7 +148,7 @@ test('aggregation builds all producer bundles with verified eight-target templat
     }
     const bundleManifest = JSON.parse(
       readFileSync(path.join(out, 'bundle-manifest.json'), 'utf8'),
-    )
+    ) as FfiProducerBundleManifest
     assert.equal(bundleManifest.producerSha, producerSha)
   } finally {
     safeDeleteSync(root, { recursive: true })
@@ -153,7 +159,10 @@ test('aggregation rejects a template set that omits a target', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'abitious-ffi-templates-'))
   try {
     const parts = createParts(root)
-    const missing = path.join(parts, `abitious-ffi-source-${TARGETS[0].triple}`)
+    const missing = path.join(
+      parts,
+      `abitious-ffi-source-${TARGETS[0]!.triple}`,
+    )
     safeDeleteSync(missing, { recursive: true })
     assert.throws(
       () =>
@@ -191,7 +200,7 @@ test('tag aggregation requires matching macOS signing and notarization receipts'
       index < length;
       index += 1
     ) {
-      const target = darwinTargets[index]
+      const target = darwinTargets[index]!
       const receipt = JSON.parse(
         readFileSync(
           path.join(root, 'bundles', target.triple, 'macos-signing.json'),

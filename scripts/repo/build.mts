@@ -9,6 +9,8 @@ import { isMainModule } from '../fleet/process/is-main-module.mts'
 import { runMain } from '../fleet/process/main/run.mts'
 import { getScriptArgs, scriptStdio } from '../fleet/process/script-output.mts'
 
+import type { ScriptMeta } from '../fleet/process/main/run.mts'
+
 export async function buildNativeWorkspace(): Promise<void> {
   const modeArgs = getScriptArgs()
   parseArgs({
@@ -35,11 +37,13 @@ export async function buildNativeWorkspace(): Promise<void> {
   }
 }
 
+const SCRIPT_META: ScriptMeta = {
+  describe: 'Build the native workspace in development or production mode.',
+  heavyJob: 'build',
+  help: 'Usage: pnpm run build [--prod]\nDevelopment uses incremental debug compilation; production uses the optimized release profile.',
+  json: 'result',
+}
+
 if (isMainModule(import.meta.url)) {
-  runMain(buildNativeWorkspace, {
-    describe: 'Build the native workspace in development or production mode.',
-    heavyJob: 'build',
-    help: 'Usage: pnpm run build [--prod]\nDevelopment uses incremental debug compilation; production uses the optimized release profile.',
-    json: 'result',
-  })
+  runMain(buildNativeWorkspace, SCRIPT_META)
 }

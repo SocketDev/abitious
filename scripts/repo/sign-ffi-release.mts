@@ -52,6 +52,10 @@ export interface SignFfiReleaseAdapters {
   notarize: (binaryPath: string) => Promise<AppleNotarizationReceipt | false>
 }
 
+export interface SignFfiReleaseCommandOptions {
+  adapters?: SignFfiReleaseAdapters | undefined
+}
+
 const SHA512_RE = /^[a-f0-9]{128}$/u
 const SOURCE_SHA_RE = /^[a-f0-9]{40}$/u
 const SUBMISSION_ID_RE =
@@ -290,9 +294,9 @@ function requiredEnv(name: string): string {
 
 export async function runFfiReleaseCommand(
   config: SignFfiReleaseConfig,
-  adapters?: SignFfiReleaseAdapters | undefined,
+  options: SignFfiReleaseCommandOptions = {},
 ): Promise<{ exitCode: number; data?: unknown | undefined }> {
-  const receipt = await signFfiReleasePart(config, adapters)
+  const receipt = await signFfiReleasePart(config, options.adapters)
   return { exitCode: 0, data: receipt }
 }
 

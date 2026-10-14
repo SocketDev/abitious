@@ -10,12 +10,18 @@ import {
   runFfiReleaseCommand,
   signFfiReleasePart,
   validateFfiMacosSigningReceipt,
-} from '../../../scripts/repo/sign-ffi-release.mts'
+} from '../../scripts/repo/sign-ffi-release.mts'
+import type {
+  SignFfiReleaseAdapters,
+  SignFfiReleaseConfig,
+} from '../../scripts/repo/sign-ffi-release.mts'
 
 const producerSha = 'b'.repeat(40)
 const submissionId = '12345678-1234-4234-8234-123456789abc'
 
-function createPart(root) {
+function createPart(
+  root: string,
+): Pick<SignFfiReleaseConfig, 'packageDir' | 'templateFile'> {
   const packageDir = path.join(root, 'package')
   const templateDir = path.join(root, 'template')
   mkdirSync(packageDir)
@@ -33,13 +39,15 @@ function createPart(root) {
   return { packageDir, templateFile }
 }
 
-function adapters(overrides = {}) {
-  const calls = []
+function adapters(
+  overrides: Partial<SignFfiReleaseAdapters> = {},
+): SignFfiReleaseAdapters & { calls: Array<[string, ...unknown[]]> } {
+  const calls: Array<[string, ...unknown[]]> = []
   return {
     calls,
     withKeychain: async (_config, callback) => callback('identity-hash'),
     sign: async (filePath, options) => {
-      calls.push(['sign', filePath, options.identity])
+      calls.push(['sign', filePath, options?.identity])
       return true
     },
     verify: async filePath => {
@@ -128,7 +136,7 @@ test('release command awaits signing failures before returning success', async (
           certificatePassword: 'password',
           identityLabel: 'Developer ID Application: Example (ABCDE12345)',
         },
-        adapters({ sign: async () => false }),
+        { adapters: adapters({ sign: async () => false }) },
       ),
       /Developer ID signing did not run/u,
     )
