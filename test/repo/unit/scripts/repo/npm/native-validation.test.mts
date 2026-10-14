@@ -129,6 +129,7 @@ function artifactFixture(
 function producerRun() {
   return {
     id: 123,
+    run_attempt: 2,
     status: 'completed',
     conclusion: 'success',
     event: 'workflow_dispatch',
@@ -186,6 +187,12 @@ test('producer run binds repository, workflow, event, source, and signed aggrega
   assert.throws(() =>
     validateNativeProducerRun(
       { ...run, head_sha: 'b'.repeat(40) },
+      { repository: 'SocketDev/abitious', sourceSha },
+    ),
+  )
+  assert.throws(() =>
+    validateNativeProducerRun(
+      { ...run, run_attempt: 0 },
       { repository: 'SocketDev/abitious', sourceSha },
     ),
   )

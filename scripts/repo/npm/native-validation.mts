@@ -35,6 +35,7 @@ const EXPECTED_EXTRA_ARTIFACTS = new Set([
 
 export interface NativeWorkflowRun {
   id: number
+  run_attempt: number
   status: string
   conclusion: string | null
   event: string
@@ -79,7 +80,9 @@ export function validateNativeProducerRun(
     run.repository?.full_name !== expected.repository ||
     run.head_repository?.full_name !== expected.repository ||
     !Number.isSafeInteger(run.id) ||
-    run.id < 1
+    run.id < 1 ||
+    !Number.isSafeInteger(run.run_attempt) ||
+    run.run_attempt < 1
   ) {
     throw new Error(
       'Native producer run is not trusted. Where: GitHub Actions. Saw a failed or unrelated run; wanted a successful exact-source workflow dispatch. Fix: build the selected source SHA on the default branch.',
@@ -195,7 +198,7 @@ export function validateNativePackageManifest(
   return manifest
 }
 
-function assertSafeArtifactPath(name: string): void {
+export function assertSafeArtifactPath(name: string): void {
   const segments = name.replace(/\/$/u, '').split('/')
   if (
     !name ||
@@ -278,6 +281,7 @@ export function stageNativeProducerPayloads(config: {
   packageRoot: string
   sourceSha: string
   expectedVersion: string
+  expectedFileHashes?: ReadonlyMap<string, string>
 }): void {
   const selected = selectNativeProducerArtifacts(
     config.artifacts.map(row => row.artifact),
@@ -344,6 +348,26 @@ export function stageNativeProducerPayloads(config: {
         destination: path.join(config.packageRoot, target.triple, name),
         executable: name === abiBin(target.os),
       })
+    }
+  }
+  if (config.expectedFileHashes) {
+    if (config.expectedFileHashes.size !== staged.length) {
+      throw new Error(
+        'Native package receipt file set differs. Where: staged package contents. Saw a missing or extra file; wanted the retained release file set. Fix: restore the exact producer receipt.',
+      )
+    }
+    for (const file of staged) {
+      const relative = path.relative(config.packageRoot, file.destination)
+      const expected = config.expectedFileHashes.get(relative)
+      const actual = crypto
+        .createHash('sha512')
+        .update(readFileSync(file.source))
+        .digest('hex')
+      if (expected !== actual) {
+        throw new Error(
+          `Native package file differs from the retained receipt. Where: ${relative}. Saw a different SHA512; wanted the staged source identity. Fix: restore the exact producer artifact.`,
+        )
+      }
     }
   }
   for (const file of staged) {

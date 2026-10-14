@@ -62,6 +62,10 @@ on:
         description: 'Build every target from targets.mts (release set), not just tier-1.'
         type: boolean
         default: false
+      source-sha:
+        description: 'Full source SHA selected by a trusted npm publish run.'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -160,8 +164,32 @@ jobs:
         name: Derive the tier-1 matrix from targets.mts
         env:
           ALL_TARGETS: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || inputs.all-targets }}
+          APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12 }}
+          APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12_PASS: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12_PASS }}
+          APPLE_ID: ${{ secrets.APPLE_ID || vars.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID || vars.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SOURCE_SHA_INPUT: ${{ inputs.source-sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REF" = "refs/heads/$DEFAULT_BRANCH" ] && [ "${ALL_TARGETS}" = "true" ] && [ "${SOURCE_SHA_INPUT}" = "${WORKFLOW_SHA}" ]; then
+            if [ -z "${APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12}" ] || \
+              [ -z "${APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12_PASS}" ] || \
+              [ -z "${APPLE_ID}" ] || \
+              [ -z "${APPLE_TEAM_ID}" ] || \
+              [ -z "${APPLE_APP_SPECIFIC_PASSWORD}" ]; then
+              echo "::error::MacOS signing cannot start. Where: native build matrix preparation. Saw at least one required credential missing; wanted all five signing credentials before building targets. Fix: configure the repository secrets and variables, then dispatch again." >&2
+              exit 1
+            fi
+          fi
+          if [ -n "${SOURCE_SHA_INPUT}" ] && [ "${SOURCE_SHA_INPUT}" != "${WORKFLOW_SHA}" ]; then
+            echo "::error::The selected source SHA does not match this workflow run's source." >&2
+            exit 1
+          fi
           if [ "$ALL_TARGETS" = "true" ]; then
             matrix="$(node scripts/repo/gen-packages.mts --print-matrix-all)"
           else
@@ -275,7 +303,7 @@ jobs:
           cp LICENSE "${dest}/LICENSE"
           cp npm/third-party-notices.md "${dest}/THIRD-PARTY-NOTICES.md"
       - name: Developer id sign and notarize darwin release files
-        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && startsWith(matrix.triple, 'darwin-') }}
+        if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.all-targets && inputs.source-sha == github.sha)) && startsWith(matrix.triple, 'darwin-') }}
         env:
           TRIPLE: ${{ matrix.triple }}
           RUST_TARGET: ${{ matrix.rust }}
@@ -283,8 +311,8 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12 }}
           APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12_PASS: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12_PASS }}
-          APPLE_ID: ${{ vars.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID || vars.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID || vars.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: |
           set -euo pipefail
@@ -405,12 +433,15 @@ jobs:
       - name: Verify and assemble platform producer bundles
         env:
           SOURCE_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          ALL_TARGETS: ${{ inputs.all-targets }}
+          SOURCE_SHA_INPUT: ${{ inputs.source-sha }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           aggregate_args=()
-          if [[ "${GITHUB_EVENT_NAME}" = "push" && "${GITHUB_REF}" == refs/tags/v* ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" = "push" && "${GITHUB_REF}" == refs/tags/v* ]] || [[ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" && "${GITHUB_REF}" = "refs/heads/${DEFAULT_BRANCH}" && "${ALL_TARGETS}" = "true" && "${SOURCE_SHA_INPUT}" = "${SOURCE_SHA}" ]]; then
             aggregate_args+=(--require-macos-signing)
           fi
           node scripts/repo/ffi-templates.mts aggregate \
