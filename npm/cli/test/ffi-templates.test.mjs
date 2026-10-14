@@ -69,6 +69,45 @@ function createParts(root) {
   return parts
 }
 
+function addMacosSigningReceipts(parts) {
+  const darwinTargets = TARGETS.filter(item => item.os === 'darwin')
+  for (let index = 0, { length } = darwinTargets; index < length; index += 1) {
+    const target = darwinTargets[index]
+    const directory = path.join(parts, `abitious-ffi-source-${target.triple}`)
+    const packageDirectory = path.join(directory, 'package')
+    for (const name of [
+      'bind.node',
+      'libabitious_decmpfs.dylib',
+      'stub.node',
+    ]) {
+      writeFileSync(path.join(packageDirectory, name), `signed ${name}`)
+    }
+    const files = [
+      'package/abi',
+      'package/bind.node',
+      'package/libabitious_decmpfs.dylib',
+      'package/stub.node',
+      'template/ffi-stub.node',
+    ].map(file => {
+      const filePath = path.join(directory, file)
+      return {
+        path: file,
+        sha512: hash(readFileSync(filePath)),
+        submissionId: '12345678-1234-4234-8234-123456789abc',
+      }
+    })
+    writeFileSync(
+      path.join(directory, 'macos-signing.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        producerSha,
+        target: target.triple,
+        files,
+      }),
+    )
+  }
+}
+
 test('aggregation builds all producer bundles with verified eight-target templates', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'abitious-ffi-templates-'))
   try {
@@ -125,6 +164,45 @@ test('aggregation rejects a template set that omits a target', () => {
         }),
       /incomplete or has duplicate targets/u,
     )
+  } finally {
+    safeDeleteSync(root, { recursive: true })
+  }
+})
+
+test('tag aggregation requires matching macOS signing and notarization receipts', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'abitious-ffi-templates-'))
+  try {
+    const parts = createParts(root)
+    const options = {
+      partsDir: parts,
+      producerSha,
+      outDir: path.join(root, 'bundles'),
+      requireMacosSigning: true,
+    }
+    assert.throws(
+      () => aggregateFfiTemplateParts(options),
+      /macOS signing receipt/u,
+    )
+    addMacosSigningReceipts(parts)
+    const result = aggregateFfiTemplateParts(options)
+    const darwinTargets = TARGETS.filter(item => item.os === 'darwin')
+    for (
+      let index = 0, { length } = darwinTargets;
+      index < length;
+      index += 1
+    ) {
+      const target = darwinTargets[index]
+      const receipt = JSON.parse(
+        readFileSync(
+          path.join(root, 'bundles', target.triple, 'macos-signing.json'),
+          'utf8',
+        ),
+      )
+      assert.equal(receipt.target, target.triple)
+      assert.equal(receipt.producerSha, producerSha)
+      assert.equal(receipt.files.length, 5)
+    }
+    assert.equal(result.packages.length, TARGETS.length)
   } finally {
     safeDeleteSync(root, { recursive: true })
   }

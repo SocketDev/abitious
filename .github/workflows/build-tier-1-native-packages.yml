@@ -243,7 +243,7 @@ jobs:
           cargo build --locked -p abitious-stub --release --target "$RUST_TARGET"
           cargo build --locked -p abitious-ffi-stub --release --target "$RUST_TARGET"
           cargo build --locked -p abitious --release --target "$RUST_TARGET"
-      - name: Stage and load the matching ffi template
+      - name: Copy native outputs into the platform package
         env:
           TRIPLE: ${{ matrix.triple }}
           RUST_TARGET: ${{ matrix.rust }}
@@ -251,22 +251,54 @@ jobs:
           BIND_ARTIFACT: ${{ matrix.bindArtifact }}
           FFI_STUB_ARTIFACT: ${{ matrix.ffiStubArtifact }}
           FFI_ARTIFACT: ${{ matrix.ffiArtifact }}
-          LIBC: ${{ matrix.libc }}
           BIN: ${{ matrix.bin }}
-          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           node scripts/repo/gen-packages.mts
           dest="npm/${TRIPLE}"
           out="target/${RUST_TARGET}/release"
-          part=".cache/fleet/ffi-source-part"
-          smoke=".cache/fleet/ffi-template-smoke/${TRIPLE}"
           cp "${out}/${STUB_ARTIFACT}" "${dest}/stub.node"
           cp "${out}/${BIND_ARTIFACT}" "${dest}/bind.node"
           cp "${out}/${FFI_ARTIFACT}" "${dest}/${FFI_ARTIFACT}"
           cp "${out}/${BIN}" "${dest}/${BIN}"
           cp LICENSE "${dest}/LICENSE"
           cp npm/THIRD-PARTY-NOTICES.md "${dest}/THIRD-PARTY-NOTICES.md"
+      - name: Developer id sign and notarize darwin release files
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && startsWith(matrix.triple, 'darwin-') }}
+        env:
+          TRIPLE: ${{ matrix.triple }}
+          RUST_TARGET: ${{ matrix.rust }}
+          FFI_STUB_ARTIFACT: ${{ matrix.ffiStubArtifact }}
+          SOURCE_SHA: ${{ github.sha }}
+          APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12 }}
+          APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12_PASS: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERTS_P12_PASS }}
+          APPLE_ID: ${{ vars.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p .cache/fleet/macos-signing
+          node scripts/repo/sign-ffi-release.mts \
+            --target "${TRIPLE}" \
+            --package "npm/${TRIPLE}" \
+            --template "target/${RUST_TARGET}/release/${FFI_STUB_ARTIFACT}" \
+            --producer-sha "${SOURCE_SHA}" \
+            --out ".cache/fleet/macos-signing/${TRIPLE}.json"
+      - name: Stage and load the matching ffi template
+        env:
+          TRIPLE: ${{ matrix.triple }}
+          RUST_TARGET: ${{ matrix.rust }}
+          FFI_STUB_ARTIFACT: ${{ matrix.ffiStubArtifact }}
+          FFI_ARTIFACT: ${{ matrix.ffiArtifact }}
+          LIBC: ${{ matrix.libc }}
+          BIN: ${{ matrix.bin }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          dest="npm/${TRIPLE}"
+          out="target/${RUST_TARGET}/release"
+          part=".cache/fleet/ffi-source-part"
+          smoke=".cache/fleet/ffi-template-smoke/${TRIPLE}"
           mkdir -p "${smoke}"
           node scripts/repo/ffi-templates.mts stage \
             --target "${TRIPLE}" \
@@ -274,7 +306,11 @@ jobs:
             --template "${out}/${FFI_STUB_ARTIFACT}" \
             --producer-sha "${SOURCE_SHA}" \
             --out "${part}"
-          "${out}/${BIN}" pack-ffi "${out}/${FFI_ARTIFACT}" \
+          signing_receipt=".cache/fleet/macos-signing/${TRIPLE}.json"
+          if [ -f "${signing_receipt}" ]; then
+            cp "${signing_receipt}" "${part}/macos-signing.json"
+          fi
+          "${dest}/${BIN}" pack-ffi "${dest}/${FFI_ARTIFACT}" \
             --target "${TRIPLE}" \
             --template "${part}/template/ffi-stub.node" \
             --out "${smoke}/packed.node"
@@ -282,10 +318,10 @@ jobs:
           if [ "${LIBC}" = "musl" ]; then
             smoke_node=(docker run --rm -v "$PWD:/workspace" -w /workspace node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 node)
             carrier="/workspace/${smoke}/packed.node"
-            input="/workspace/${out}/${FFI_ARTIFACT}"
+            input="/workspace/${dest}/${FFI_ARTIFACT}"
           else
             carrier="${smoke}/packed.node"
-            input="${out}/${FFI_ARTIFACT}"
+            input="${dest}/${FFI_ARTIFACT}"
           fi
           "${smoke_node[@]}" --input-type=commonjs -e '
             const assert = require("node:assert/strict");
@@ -354,12 +390,19 @@ jobs:
       - name: Verify and assemble platform producer bundles
         env:
           SOURCE_SHA: ${{ github.sha }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
+          aggregate_args=()
+          if [[ "${GITHUB_EVENT_NAME}" = "push" && "${GITHUB_REF}" == refs/tags/v* ]]; then
+            aggregate_args+=(--require-macos-signing)
+          fi
           node scripts/repo/ffi-templates.mts aggregate \
             --parts .cache/fleet/ffi-template-parts \
             --producer-sha "${SOURCE_SHA}" \
-            --out .cache/fleet/ffi-producer-bundles
+            --out .cache/fleet/ffi-producer-bundles \
+            "${aggregate_args[@]}"
           host_bundle=.cache/fleet/ffi-producer-bundles/linux-x64-gnu
           "${host_bundle}/abi" pack-ffi \
             "${host_bundle}/libabitious_decmpfs.so" \

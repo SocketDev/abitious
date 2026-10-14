@@ -22,6 +22,9 @@ import type { ScriptMeta } from '../fleet/process/main/run.mts'
 import { isPlainObject } from '@socketsecurity/lib-stable/objects/predicates'
 
 import { FFI_STUB_NODE, TARGETS } from './targets.mts'
+import { validateFfiMacosSigningReceipt } from './sign-ffi-release.mts'
+
+import type { FfiMacosSigningReceipt } from './sign-ffi-release.mts'
 
 export interface FfiTemplatePartMetadata {
   schemaVersion: 1
@@ -65,6 +68,7 @@ interface AggregateConfig {
   partsDir: string
   producerSha: string
   outDir: string
+  requireMacosSigning?: boolean | undefined
 }
 
 interface ValidatedPart {
@@ -72,6 +76,7 @@ interface ValidatedPart {
   packageDir: string
   templateFile: string
   sha512: string
+  macosSigningReceipt?: FfiMacosSigningReceipt | undefined
 }
 
 const SHA512_RE = /^[a-f0-9]{128}$/u
@@ -203,11 +208,15 @@ export function stageFfiTemplatePart(
   return metadata
 }
 
-function validatePart(
-  artifactDir: string,
-  target: string,
-  producerSha: string,
-): ValidatedPart {
+function validatePart(config: {
+  artifactDir: string
+  target: string
+  producerSha: string
+  requireMacosSigning: boolean
+}): ValidatedPart {
+  const { artifactDir, target, producerSha, requireMacosSigning } = {
+    ...config,
+  }
   const metadataPath = path.join(artifactDir, 'part.json')
   const templateFile = path.join(artifactDir, 'template', FFI_STUB_NODE)
   const packageDir = path.join(artifactDir, 'package')
@@ -249,11 +258,21 @@ function validatePart(
       `The package target does not match its template. Where: ${packageJsonPath}. Saw ${String(packageJson['name'])}; wanted @abitious/${target}. Fix: rebuild the target package in the same workflow run.`,
     )
   }
+  let macosSigningReceipt: FfiMacosSigningReceipt | undefined
+  if (requireMacosSigning && target.startsWith('darwin-')) {
+    const receiptPath = path.join(artifactDir, 'macos-signing.json')
+    assertRegularFile(receiptPath, 'The macOS signing receipt')
+    macosSigningReceipt = validateFfiMacosSigningReceipt(
+      JSON.parse(readFileSync(receiptPath, 'utf8')) as unknown,
+      { producerSha, target, packageDir, templateFile },
+    )
+  }
   const part: ValidatedPart = {
     target,
     packageDir,
     templateFile,
     sha512: actualDigest,
+    ...(macosSigningReceipt !== undefined ? { macosSigningReceipt } : {}),
   }
   Object.setPrototypeOf(part, null)
   return part
@@ -274,11 +293,12 @@ export function aggregateFfiTemplateParts(
     )
   }
   const parts = targetTriples.map(target =>
-    validatePart(
-      path.join(config.partsDir, `abitious-ffi-source-${target}`),
+    validatePart({
+      artifactDir: path.join(config.partsDir, `abitious-ffi-source-${target}`),
       target,
-      config.producerSha,
-    ),
+      producerSha: config.producerSha,
+      requireMacosSigning: config.requireMacosSigning === true,
+    }),
   )
   emptyOutputDirectory(config.outDir)
 
@@ -303,6 +323,13 @@ export function aggregateFfiTemplateParts(
       recursive: true,
       errorOnExist: true,
     })
+    if (part.macosSigningReceipt !== undefined) {
+      writeFileSync(
+        path.join(packageOutput, 'macos-signing.json'),
+        `${JSON.stringify(part.macosSigningReceipt, null, 2)}\n`,
+        { flag: 'wx' },
+      )
+    }
     const templatesDirectory = path.join(packageOutput, 'templates')
     mkdirSync(templatesDirectory)
     for (
@@ -424,6 +451,7 @@ function main(): { exitCode: number; data?: unknown | undefined } {
       'producer-sha': { type: 'string' },
       out: { type: 'string' },
       parts: { type: 'string' },
+      'require-macos-signing': { type: 'boolean' },
     },
     allowPositionals: true,
   })
@@ -442,6 +470,7 @@ function main(): { exitCode: number; data?: unknown | undefined } {
       partsDir: requiredOption(values, 'parts'),
       producerSha: requiredOption(values, 'producer-sha'),
       outDir: requiredOption(values, 'out'),
+      requireMacosSigning: values['require-macos-signing'] === true,
     })
     return { exitCode: 0, data: result }
   }
@@ -453,7 +482,8 @@ const SCRIPT_META: ScriptMeta = {
   help: `Usage: node scripts/repo/ffi-templates.mts <stage|aggregate> [options]
 
   stage --target <triple> --package <dir> --template <file> --producer-sha <sha> --out <dir>
-  aggregate --parts <dir> --producer-sha <sha> --out <dir>
+  aggregate --parts <dir> --producer-sha <sha> --out <dir> [--require-macos-signing]
+  --require-macos-signing  require verified Developer ID and notarization receipts for both Darwin targets
   --json  emit a structured result`,
   json: 'result',
 }
