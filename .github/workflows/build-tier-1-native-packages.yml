@@ -23,8 +23,9 @@
 #               `abi build --compress` time) is itself a macOS build, and the darwin stub
 #               links against the macOS SDK.
 #
-# Every action is pinned to a commit SHA (SocketDev sha_pinning_required), copied from the
-# fleet's canonical pins (decmpfs for the JS actions, envrypt for the Rust actions).
+# The workflow uses fleet-owned setup, toolchain, cache, and artifact actions.
+# Each job bootstraps its checkout inline because a local action cannot run
+# before GitHub checks out the repository.
 
 name: 'build: tier-1 native packages'
 run-name: 'build: ${{ github.ref_name }}'
@@ -82,16 +83,31 @@ jobs:
   # (pure node builtins); typecheck installs the pinned devDeps via pnpm.
   check:
     name: Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (2026-07-20)
-        with:
-          persist-credentials: false
+      - name: Bootstrap checkout
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git init -q
+          git config --local advice.detachedHead false
+          git remote add origin "${SERVER_URL}/${REPOSITORY}"
+          AUTH_B64="$(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 | tr -d '\n')"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.${SERVER_URL}/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${AUTH_B64}"
+          git fetch --no-tags --depth 25 origin "${SOURCE_SHA}"
+          git checkout -q --detach FETCH_HEAD
       - name: Set up and install
         uses: ./.github/actions/fleet/setup-and-install
         with:
           checkout: 'false'
+          socket-api-token: ${{ secrets.SOCKET_API_TOKEN_FOR_CLI_AND_SFW }}
           node-version: 24
           payload-token-client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
           payload-token-private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
@@ -105,20 +121,33 @@ jobs:
   # Derive the CI matrix from the single source of truth.
   prepare:
     name: Prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       matrix: ${{ steps.gen.outputs.matrix }}
     steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (2026-07-20)
-        with:
-          persist-credentials: false
-      # No `cache:` input is set, so setup-node does not cache here; the release-trigger
-      # cache-poisoning heuristic is a low-confidence false positive.
+      - name: Bootstrap checkout
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git init -q
+          git config --local advice.detachedHead false
+          git remote add origin "${SERVER_URL}/${REPOSITORY}"
+          AUTH_B64="$(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 | tr -d '\n')"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.${SERVER_URL}/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${AUTH_B64}"
+          git fetch --no-tags --depth 25 origin "${SOURCE_SHA}"
+          git checkout -q --detach FETCH_HEAD
       - name: Set up node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0 (2026-07-14)
+        uses: ./.github/actions/fleet/setup
         with:
           node-version: 24
+          socket-api-token: ${{ secrets.SOCKET_API_TOKEN_FOR_CLI_AND_SFW }}
       - id: gen
         name: Derive the tier-1 matrix from targets.mts
         env:
@@ -141,36 +170,45 @@ jobs:
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (2026-07-20)
-        with:
-          persist-credentials: false
-      # No `cache:` input is set, so setup-node does not cache here; the release-trigger
-      # cache-poisoning heuristic is a low-confidence false positive.
+      - name: Bootstrap checkout
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git init -q
+          git config --local advice.detachedHead false
+          git remote add origin "${SERVER_URL}/${REPOSITORY}"
+          AUTH_B64="$(printf 'x-access-token:%s' "${GITHUB_TOKEN}" | base64 | tr -d '\n')"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.${SERVER_URL}/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${AUTH_B64}"
+          git fetch --no-tags --depth 25 origin "${SOURCE_SHA}"
+          git checkout -q --detach FETCH_HEAD
       - name: Set up node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0 (2026-07-14)
+        uses: ./.github/actions/fleet/setup
         with:
           node-version: 24
-      # Toolchain channel is pinned in rust-toolchain.toml (nightly-2026-09-24); keep the
-      # `toolchain:` here in lockstep with it. `targets:` adds the matrix cross target.
+          socket-api-token: ${{ secrets.SOCKET_API_TOKEN_FOR_CLI_AND_SFW }}
       - name: Rust toolchain
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master (2026-09-12)
+        uses: ./.github/actions/fleet/setup-rust-toolchain
         with:
-          toolchain: nightly-2026-09-24
+          channel: nightly-2026-09-24
           targets: ${{ matrix.rust }}
-      # save-if below is the real mitigation (only a push to main populates the shared
-      # cache, so a PR or the privileged `release` run can neither poison it nor bake a
-      # poisoned entry into a release); the restore-side heuristic is acknowledged here.
       - name: Rust cache
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2 # zizmor: ignore[cache-poisoning] (2026-03-12)
+        uses: ./.github/actions/fleet/setup-rust-cache
         with:
-          key: ${{ matrix.triple }}
+          workspaces: .
+          prefix-key: ${{ matrix.triple }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install the musl toolchain (musl targets only)
         if: ${{ matrix.libc == 'musl' }}
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       # The binder links node.lib (the node.exe import library) on Windows - the win-<arch>
-      # dist folders publish it beside node.exe. Node version comes from setup-node.
+      # dist folders publish it beside node.exe. Node comes from fleet setup.
       - name: Download node.lib (Windows targets only)
         if: ${{ runner.os == 'Windows' }}
         env:
@@ -211,8 +249,13 @@ jobs:
           cp "${out}/${BIN}" "${dest}/${BIN}"
           ls -la "${dest}"
       - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (2026-04-10)
+        uses: ./.github/actions/fleet/upload-artifact
         with:
           name: abitious-${{ matrix.triple }}
           path: npm/${{ matrix.triple }}
           if-no-files-found: error
+      - name: Save Rust cache
+        if: ${{ !cancelled() }}
+        uses: ./.github/actions/fleet/setup-rust-cache
+        with:
+          phase: save

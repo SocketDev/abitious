@@ -33,7 +33,7 @@ jobs:
     name: Publish Cargo
     runs-on: ubuntu-26.04
     # Human approval + OIDC gate for the permanent publish.
-    environment: publish-cargo
+    environment: cargo-publish
     permissions:
       contents: write # registry/cargo/publish/run.mts tags + cuts the GitHub release
       id-token: write # crates.io Trusted Publishing (OIDC) + provenance
@@ -69,6 +69,7 @@ jobs:
       - name: Set up and install
         uses: ./.github/actions/fleet/setup-and-install
         with:
+          socket-api-token: ${{ secrets.SOCKET_API_TOKEN_FOR_CLI_AND_SFW }}
           payload-token-client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
           payload-token-private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
       # Fleet composites, not the third-party actions they replace: a raw
