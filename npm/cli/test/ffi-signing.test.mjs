@@ -7,6 +7,7 @@ import { safeDeleteSync } from '@socketsecurity/lib-stable/fs/safe'
 import { test } from 'vitest'
 
 import {
+  runFfiReleaseCommand,
   signFfiReleasePart,
   validateFfiMacosSigningReceipt,
 } from '../../../scripts/repo/sign-ffi-release.mts'
@@ -106,6 +107,30 @@ test('Darwin release signing fails closed when notarization is skipped', async (
         adapters({ notarize: async () => false }),
       ),
       /Apple notarization did not finish/u,
+    )
+  } finally {
+    safeDeleteSync(root, { recursive: true })
+  }
+})
+
+test('release command awaits signing failures before returning success', async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'abitious-ffi-signing-'))
+  try {
+    const part = createPart(root)
+    await assert.rejects(
+      runFfiReleaseCommand(
+        {
+          target: 'darwin-x64',
+          ...part,
+          producerSha,
+          outputFile: path.join(root, 'macos-signing.json'),
+          certificateBase64: 'certificate',
+          certificatePassword: 'password',
+          identityLabel: 'Developer ID Application: Example (ABCDE12345)',
+        },
+        adapters({ sign: async () => false }),
+      ),
+      /Developer ID signing did not run/u,
     )
   } finally {
     safeDeleteSync(root, { recursive: true })

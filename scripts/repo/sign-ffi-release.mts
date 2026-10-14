@@ -288,7 +288,18 @@ function requiredEnv(name: string): string {
   return value
 }
 
-function main(): { exitCode: number; data?: unknown | undefined } {
+export async function runFfiReleaseCommand(
+  config: SignFfiReleaseConfig,
+  adapters?: SignFfiReleaseAdapters | undefined,
+): Promise<{ exitCode: number; data?: unknown | undefined }> {
+  const receipt = await signFfiReleasePart(config, adapters)
+  return { exitCode: 0, data: receipt }
+}
+
+async function main(): Promise<{
+  exitCode: number
+  data?: unknown | undefined
+}> {
   const { values } = parseArgs({
     args: getScriptArgs(),
     options: {
@@ -307,7 +318,7 @@ function main(): { exitCode: number; data?: unknown | undefined } {
     }
     return value
   }
-  const receipt = signFfiReleasePart({
+  return runFfiReleaseCommand({
     target: requiredOption('target'),
     packageDir: requiredOption('package'),
     templateFile: requiredOption('template'),
@@ -319,7 +330,6 @@ function main(): { exitCode: number; data?: unknown | undefined } {
     ),
     identityLabel: getDeveloperIdIdentityLabel(),
   })
-  return { exitCode: 0, data: receipt }
 }
 
 const SCRIPT_META: ScriptMeta = {
