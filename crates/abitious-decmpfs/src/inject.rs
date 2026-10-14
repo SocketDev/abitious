@@ -168,14 +168,53 @@ fn name_eq(slot: &[u8], want: &[u8]) -> bool {
 /// ad-hoc re-signed (see [`resign`]); ELF and PE need no signature (their loaders
 /// enforce none on `dlopen`). The result round-trips through [`crate::unwrap_if_hybrid`].
 pub fn inject_pressed_data(binary: &[u8], section: &[u8]) -> Result<Vec<u8>, InjectError> {
+    inject_section(binary, section, SectionKind::PressedData)
+}
+
+pub fn inject_ffi_data(binary: &[u8], section: &[u8]) -> Result<Vec<u8>, InjectError> {
+    inject_section(binary, section, SectionKind::Ffi)
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum SectionKind {
+    PressedData,
+    Ffi,
+}
+
+impl SectionKind {
+    pub(crate) fn macho_name(self) -> &'static [u8] {
+        match self {
+            Self::PressedData => b"__PRESSED_DATA",
+            Self::Ffi => b"__ABI_FFI",
+        }
+    }
+    pub(crate) fn elf_name(self) -> &'static [u8] {
+        match self {
+            Self::PressedData => b".PRESSED_DATA\0",
+            Self::Ffi => b".ABI_FFI\0",
+        }
+    }
+    pub(crate) fn pe_name(self) -> &'static [u8; 8] {
+        match self {
+            Self::PressedData => b".PRESSED",
+            Self::Ffi => b".ABIFFI\0",
+        }
+    }
+}
+
+fn inject_section(
+    binary: &[u8],
+    section: &[u8],
+    kind: SectionKind,
+) -> Result<Vec<u8>, InjectError> {
     match binary.get(..4) {
         // Mach-O 64-bit, both endiannesses (the injector supports only LE; a BE
         // header is recognized here but rejected by `inject_macho`'s magic check).
         Some([0xcf, 0xfa, 0xed, 0xfe]) | Some([0xfe, 0xed, 0xfa, 0xcf]) => {
-            inject_macho(binary, section)
+            inject_macho_kind(binary, section, kind)
         }
-        Some([0x7f, b'E', b'L', b'F']) => inject_elf(binary, section),
-        Some([b'M', b'Z', ..]) => inject_pe(binary, section),
+        Some([0x7f, b'E', b'L', b'F']) => inject_elf_kind(binary, section, kind),
+        Some([b'M', b'Z', ..]) => inject_pe_kind(binary, section, kind),
         _ => Err(InjectError::UnknownFormat),
     }
 }
@@ -330,7 +369,13 @@ fn read_layout(bytes: &[u8]) -> Result<Layout, InjectError> {
 }
 
 /// Build the 152-byte `LC_SEGMENT_64` + one `section_64` for `SMOL/__PRESSED_DATA`.
-fn build_segment_lc(body_len: u64, delta: u64, fileoff: u64, vmaddr: u64) -> Vec<u8> {
+fn build_segment_lc(
+    body_len: u64,
+    delta: u64,
+    fileoff: u64,
+    vmaddr: u64,
+    kind: SectionKind,
+) -> Vec<u8> {
     let mut lc = vec![0u8; NEW_LC_SIZE];
     // segment_command_64
     put_u32(&mut lc, 0, LC_SEGMENT_64);
@@ -345,7 +390,8 @@ fn build_segment_lc(body_len: u64, delta: u64, fileoff: u64, vmaddr: u64) -> Vec
     put_u32(&mut lc, 64, 1); // nsects
     put_u32(&mut lc, 68, 0); // flags
     let s = SEGMENT_COMMAND_64_SIZE; // the section_64 begins at +72
-    lc[s..s + 14].copy_from_slice(b"__PRESSED_DATA"); // sectname (14B, NUL-padded to 16)
+    let sectname = kind.macho_name();
+    lc[s..s + sectname.len()].copy_from_slice(sectname);
     lc[s + 16..s + 20].copy_from_slice(b"SMOL"); // segname
     put_u64(&mut lc, s + 32, vmaddr); // addr
     put_u64(&mut lc, s + 40, body_len); // size (unpadded body)
@@ -359,12 +405,29 @@ fn build_segment_lc(body_len: u64, delta: u64, fileoff: u64, vmaddr: u64) -> Vec
 /// signature-covered. On non-macOS (or without the `resign` feature) [`resign`] is a
 /// no-op and the returned bytes are unsigned.
 pub fn inject_macho(binary: &[u8], section: &[u8]) -> Result<Vec<u8>, InjectError> {
-    let spliced = splice_macho_segment(binary, section)?;
+    inject_macho_kind(binary, section, SectionKind::PressedData)
+}
+
+fn inject_macho_kind(
+    binary: &[u8],
+    section: &[u8],
+    kind: SectionKind,
+) -> Result<Vec<u8>, InjectError> {
+    let spliced = splice_macho_segment_kind(binary, section, kind)?;
     resign(&spliced)
 }
 
 /// The pure Mach-O surgery: returns the injected (still UNSIGNED) bytes.
+#[cfg(test)]
 fn splice_macho_segment(stub: &[u8], section_body: &[u8]) -> Result<Vec<u8>, InjectError> {
+    splice_macho_segment_kind(stub, section_body, SectionKind::PressedData)
+}
+
+fn splice_macho_segment_kind(
+    stub: &[u8],
+    section_body: &[u8],
+    kind: SectionKind,
+) -> Result<Vec<u8>, InjectError> {
     let layout = read_layout(stub)?;
 
     // 1. Slack guard: the new 152-byte LC must fit between END_OF_LC and the first
@@ -426,7 +489,7 @@ fn splice_macho_segment(stub: &[u8], section_body: &[u8]) -> Result<Vec<u8>, Inj
     //    [END_OF_LC+152, linkedit_start)   remaining headerpad + all mapped bytes
     //    section_body + zero-pad to DELTA  the injected section content
     //    [linkedit_start, linkedit_end)    __LINKEDIT body (sans old signature)
-    let new_lc = build_segment_lc(body_len, delta, new_fileoff, new_vmaddr);
+    let new_lc = build_segment_lc(body_len, delta, new_fileoff, new_vmaddr, kind);
     let mut out: Vec<u8> = Vec::with_capacity(stub.len() + delta as usize);
     out.extend_from_slice(&stub[..layout.linkedit_lc_off]);
     out.extend_from_slice(&new_lc);
@@ -504,6 +567,14 @@ fn splice_macho_segment(stub: &[u8], section_body: &[u8]) -> Result<Vec<u8>, Inj
 /// appended at EOF; the `.shstrtab` header is repointed and one entry added. No
 /// signing — no ELF loader enforces a code signature on `dlopen`.
 pub fn inject_elf(binary: &[u8], section: &[u8]) -> Result<Vec<u8>, InjectError> {
+    inject_elf_kind(binary, section, SectionKind::PressedData)
+}
+
+fn inject_elf_kind(
+    binary: &[u8],
+    section: &[u8],
+    kind: SectionKind,
+) -> Result<Vec<u8>, InjectError> {
     let stub = binary;
     let body = section;
     if stub.get(4).copied() != Some(2) {
@@ -549,8 +620,9 @@ pub fn inject_elf(binary: &[u8], section: &[u8]) -> Result<Vec<u8>, InjectError>
     let shstr_off = align_up(out.len(), 8);
     out.resize(shstr_off, 0);
     out.extend_from_slice(&old_strtab);
-    out.extend_from_slice(b".PRESSED_DATA\0");
-    let new_strtab_size = strtab_size + b".PRESSED_DATA\0".len();
+    let section_name = kind.elf_name();
+    out.extend_from_slice(section_name);
+    let new_strtab_size = strtab_size + section_name.len();
     // Fresh section-header table: the old entries (with .shstrtab repointed) + one new.
     let new_shoff = align_up(out.len(), 8);
     out.resize(new_shoff, 0);
@@ -578,6 +650,14 @@ pub fn inject_elf(binary: &[u8], section: &[u8]) -> Result<Vec<u8>, InjectError>
 /// at EOF. No signing (napi PE addons are unsigned; the loader enforces none on
 /// load). The reader uses SizeOfRawData; the header framing self-delimits the payload.
 pub fn inject_pe(binary: &[u8], section: &[u8]) -> Result<Vec<u8>, InjectError> {
+    inject_pe_kind(binary, section, SectionKind::PressedData)
+}
+
+fn inject_pe_kind(
+    binary: &[u8],
+    section: &[u8],
+    kind: SectionKind,
+) -> Result<Vec<u8>, InjectError> {
     let stub = binary;
     let body = section;
     let pe_off = u32_le(stub, 0x3c)? as usize;
@@ -620,7 +700,7 @@ pub fn inject_pe(binary: &[u8], section: &[u8]) -> Result<Vec<u8>, InjectError> 
     out.extend_from_slice(body);
     out.resize(raw_ptr + raw_size, 0); // pad raw data to FileAlignment
 
-    out[new_hdr..new_hdr + 8].copy_from_slice(b".PRESSED"); // Name (exactly 8 bytes)
+    out[new_hdr..new_hdr + 8].copy_from_slice(kind.pe_name()); // Name (exactly 8 bytes)
     put_u32(&mut out, new_hdr + 8, body.len() as u32); // VirtualSize (true length)
     put_u32(&mut out, new_hdr + 12, new_va as u32); // VirtualAddress
     put_u32(&mut out, new_hdr + 16, raw_size as u32); // SizeOfRawData

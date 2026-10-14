@@ -1,5 +1,5 @@
 use super::*;
-use crate::{unwrap_if_hybrid, Arch, Libc, Platform};
+use crate::{install_hybrid, unwrap_if_hybrid, Arch, Gate, Libc, Platform};
 
 // A minimal valid ELF64 LE: header + ".shstrtab" + a 2-entry section table
 // (NULL, .shstrtab) — enough for inject_elf to grow.
@@ -348,6 +348,28 @@ fn splice_macho_round_trips_without_a_signature_and_bumps_prior_pointers() {
         Some(raw.as_slice()),
         "the spliced Mach-O's SMOL/__PRESSED_DATA section round-trips to the raw addon"
     );
+
+    let mut ffi_raw = vec![0u8; 32];
+    put_u32(&mut ffi_raw, 0, MH_MAGIC_64);
+    put_u32(&mut ffi_raw, 4, CPU_TYPE_X86_64);
+    put_u32(&mut ffi_raw, 12, 6); // MH_DYLIB
+    let ffi_payload = crate::build_ffi_section_payload(
+        &ffi_raw,
+        "darwin-x64",
+        Platform::Darwin,
+        Arch::X64,
+        Libc::Na,
+        3,
+    )
+    .expect("build Mach-O FFI payload");
+    let ffi_carrier = splice_macho_segment_kind(&stub, &ffi_payload, SectionKind::Ffi)
+        .expect("inject distinct Mach-O FFI section");
+    assert_eq!(
+        crate::decode_ffi_data(crate::find_ffi_data_section(&ffi_carrier).expect("find FFI"))
+            .expect("decode Mach-O FFI")
+            .raw,
+        ffi_raw
+    );
 }
 
 #[test]
@@ -413,4 +435,70 @@ fn inject_pe_rejects_malformed_headers() {
         .unwrap_err()
         .to_string()
         .contains("no PE header slack"));
+}
+
+#[test]
+fn ffi_injection_uses_distinct_sections_and_generic_installers_ignore_it() {
+    let mut raw = vec![0u8; 64];
+    raw[..4].copy_from_slice(b"\x7fELF");
+    raw[4] = 2;
+    raw[5] = 1;
+    raw[6] = 1;
+    raw[16..18].copy_from_slice(&3u16.to_le_bytes());
+    raw[18..20].copy_from_slice(&0x003eu16.to_le_bytes());
+    raw[52..54].copy_from_slice(&64u16.to_le_bytes());
+    let payload = crate::build_ffi_section_payload(
+        &raw,
+        "linux-x64-gnu",
+        Platform::Linux,
+        Arch::X64,
+        Libc::Glibc,
+        3,
+    )
+    .expect("build FFI payload");
+    let carrier = inject_ffi_data(&minimal_elf64(), &payload).expect("inject FFI section");
+    let section = crate::find_ffi_data_section(&carrier).expect("find distinct FFI section");
+    assert_eq!(
+        crate::decode_ffi_data(section).expect("decode payload").raw,
+        raw
+    );
+    assert!(unwrap_if_hybrid(&carrier).is_none());
+
+    let dir = std::env::temp_dir().join(format!("abitious-ffi-install-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create install directory");
+    let dest = dir.join("carrier.node");
+    install_hybrid(&carrier, &dest, &Gate::any()).expect("install FFI carrier");
+    assert_eq!(
+        std::fs::read(&dest).expect("read installed wrapper"),
+        carrier,
+        "generic installer preserves the complete FFI wrapper byte-for-byte"
+    );
+    std::fs::remove_dir_all(&dir).expect("remove install directory");
+}
+
+#[test]
+fn pe_ffi_injection_keeps_alignment_padding_and_distinct_name() {
+    let mut raw = minimal_pe();
+    let pe = 0x40usize;
+    let coff = pe + 4;
+    put_u16(&mut raw, coff, 0x8664); // IMAGE_FILE_MACHINE_AMD64
+    put_u16(&mut raw, coff + 18, 0x2000); // IMAGE_FILE_DLL
+    let payload = crate::build_ffi_section_payload(
+        &raw,
+        "win32-x64-msvc",
+        Platform::Win32,
+        Arch::X64,
+        Libc::Na,
+        3,
+    )
+    .expect("build PE FFI payload");
+    let carrier = inject_ffi_data(&minimal_pe(), &payload).expect("inject PE FFI section");
+    let section = crate::find_ffi_data_section(&carrier).expect("find PE FFI section");
+    assert!(section.len() > payload.len());
+    assert_eq!(
+        crate::decode_ffi_data(section).expect("decode PE FFI").raw,
+        raw
+    );
+    assert!(unwrap_if_hybrid(&carrier).is_none());
 }

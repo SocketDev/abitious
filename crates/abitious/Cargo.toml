@@ -1,6 +1,6 @@
 [package]
 name = "abitious"
-description = "The abitious `abi` CLI: cargo-build a napi cdylib for the host triple, resolve its .node artifact, and optionally compress it into a self-loading hybrid .node via the abitious producer."
+description = "The abitious `abi` CLI: build N-API addons or package native FFI libraries into self-extracting carriers using prebuilt templates."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

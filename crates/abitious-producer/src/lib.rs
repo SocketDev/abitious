@@ -17,6 +17,10 @@
 // in-module test block so the report reflects PRODUCTION coverage. A no-op on stable.
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
+mod ffi;
+
+pub use ffi::{compress_ffi, FfiReceipt};
+
 use std::fmt;
 use std::path::{Path, PathBuf};
 

@@ -25,6 +25,8 @@ pub enum Command {
     Build(BuildArgs),
     /// `abi inspect …` with its resolved options.
     Inspect(InspectArgs),
+    /// `abi pack-ffi …` with its resolved options.
+    PackFfi(PackFfiArgs),
     /// `-h` / `--help` (or `abi` with no subcommand): print usage and exit 0.
     Help,
 }
@@ -40,6 +42,16 @@ pub struct InspectArgs {
     pub out: Option<PathBuf>,
     /// Emit a machine-readable JSON report instead of the human report.
     pub json: bool,
+}
+
+/// The options for `abi pack-ffi`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PackFfiArgs {
+    pub library: PathBuf,
+    pub target: String,
+    pub template: Option<PathBuf>,
+    pub out: PathBuf,
+    pub compress_level: i32,
 }
 
 /// The options for `abi build`.
@@ -76,7 +88,8 @@ impl Default for BuildArgs {
 /// The `abi` usage banner (the `Where:` line of every arg error, and `--help` output).
 pub const USAGE: &str = "abi build [--compress] [--compress-level N] [--release] \
                          [--stub <path>] [-p <package>] [--out <path>]\n       \
-                         abi inspect <file.node> [--decompress] [--json] [-o <path>]";
+                         abi inspect <file.node> [--decompress] [--json] [-o <path>]\n       \
+                         abi pack-ffi <shared-library> --target <triple> [--template <path>] --out <file.node> [--compress-level N]";
 
 /// Parse `argv` (the arguments AFTER the program name) into a [`Command`]. Returns a LOUD
 /// What / Where / Fix error string on any malformed invocation.
@@ -90,8 +103,9 @@ pub fn parse<I: IntoIterator<Item = String>>(argv: I) -> Result<Command, String>
         "-h" | "--help" => Ok(Command::Help),
         "build" => parse_build(it),
         "inspect" => parse_inspect(it),
+        "pack-ffi" => parse_pack_ffi(it),
         other => Err(usage(&format!(
-            "unknown subcommand {other:?} (expected `build` or `inspect`)"
+            "unknown subcommand {other:?} (expected `build`, `inspect`, or `pack-ffi`)"
         ))),
     }
 }
@@ -138,6 +152,51 @@ fn parse_build<I: Iterator<Item = String>>(mut it: I) -> Result<Command, String>
     // auto-resolved from an installed `@abitious/<triple>` package during `build::run` (which
     // LOUD-fails there, naming the exact package, if none is found).
     Ok(Command::Build(args))
+}
+
+/// Parse the arguments after `abi pack-ffi`.
+fn parse_pack_ffi<I: Iterator<Item = String>>(mut it: I) -> Result<Command, String> {
+    let mut library = None;
+    let mut target = None;
+    let mut template = None;
+    let mut out = None;
+    let mut compress_level = DEFAULT_LEVEL;
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--target" => target = Some(it.next().ok_or_else(|| usage("--target needs a value"))?),
+            "--template" => {
+                template = Some(PathBuf::from(
+                    it.next().ok_or_else(|| usage("--template needs a value"))?,
+                ))
+            }
+            "--out" | "-o" => {
+                out = Some(PathBuf::from(
+                    it.next().ok_or_else(|| usage("--out needs a value"))?,
+                ))
+            }
+            "--compress-level" => {
+                let value = it
+                    .next()
+                    .ok_or_else(|| usage("--compress-level needs a value"))?;
+                compress_level = value
+                    .parse()
+                    .map_err(|_| usage("--compress-level must be an integer"))?;
+            }
+            "-h" | "--help" => return Ok(Command::Help),
+            other if other.starts_with('-') => {
+                return Err(usage(&format!("unexpected argument {other:?}")))
+            }
+            _ if library.is_none() => library = Some(PathBuf::from(arg)),
+            _ => return Err(usage(&format!("unexpected extra path {arg:?}"))),
+        }
+    }
+    Ok(Command::PackFfi(PackFfiArgs {
+        library: library.ok_or_else(|| usage("pack-ffi needs a <shared-library> path"))?,
+        target: target.ok_or_else(|| usage("pack-ffi needs --target <triple>"))?,
+        template,
+        out: out.ok_or_else(|| usage("pack-ffi needs --out <file.node>"))?,
+        compress_level,
+    }))
 }
 
 /// Parse the arguments after `abi inspect` into a [`Command::Inspect`]. Exactly one
@@ -369,7 +428,64 @@ mod tests {
     }
 
     #[test]
-    fn usage_names_both_subcommands() {
-        assert!(USAGE.contains("abi build") && USAGE.contains("abi inspect"));
+    fn pack_ffi_requires_target_output_and_library() {
+        assert!(
+            parse(args(&["pack-ffi", "library.so", "--out", "out.node"]))
+                .unwrap_err()
+                .contains("--target")
+        );
+        assert!(parse(args(&[
+            "pack-ffi",
+            "--target",
+            "linux-x64-gnu",
+            "--out",
+            "out.node"
+        ]))
+        .unwrap_err()
+        .contains("shared-library"));
+        assert!(parse(args(&[
+            "pack-ffi",
+            "library.so",
+            "--target",
+            "linux-x64-gnu"
+        ]))
+        .unwrap_err()
+        .contains("--out"));
+    }
+
+    #[test]
+    fn pack_ffi_parses_explicit_target_template_output_and_level() {
+        let parsed = parse(args(&[
+            "pack-ffi",
+            "library.so",
+            "--target",
+            "linux-x64-gnu",
+            "--template",
+            "ffi-stub.node",
+            "--out",
+            "carrier.node",
+            "--compress-level",
+            "9",
+        ]))
+        .unwrap();
+        assert_eq!(
+            parsed,
+            Command::PackFfi(PackFfiArgs {
+                library: PathBuf::from("library.so"),
+                target: "linux-x64-gnu".to_owned(),
+                template: Some(PathBuf::from("ffi-stub.node")),
+                out: PathBuf::from("carrier.node"),
+                compress_level: 9,
+            })
+        );
+    }
+
+    #[test]
+    fn usage_lists_the_ffi_pack_command() {
+        assert!(
+            USAGE.contains("abi build")
+                && USAGE.contains("abi inspect")
+                && USAGE.contains("abi pack-ffi")
+        );
     }
 }

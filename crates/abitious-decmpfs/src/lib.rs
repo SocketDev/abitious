@@ -53,11 +53,19 @@
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
 pub mod ffi;
+mod ffi_payload;
 mod inject;
 mod outcome;
 pub mod selfextract;
 
-pub use inject::{inject_elf, inject_macho, inject_pe, inject_pressed_data, resign, InjectError};
+pub use ffi_payload::{
+    build_ffi_section_payload, decode_ffi_data, host_ffi_target, inspect_ffi_data, raw_sha512,
+    validate_ffi_target_object, FfiPayload, FfiPayloadError, FfiPayloadInfo, FFI_ENVELOPE_MAGIC,
+    FFI_ENVELOPE_VERSION,
+};
+pub use inject::{
+    inject_elf, inject_ffi_data, inject_macho, inject_pe, inject_pressed_data, resign, InjectError,
+};
 pub use outcome::{skip_reason_text, unsupported_reason_text, OutcomeExt};
 
 // The engine itself, re-exported under its own name. Anything not named flat below
@@ -535,18 +543,25 @@ fn read_u16_le(buf: &[u8], at: usize) -> Option<u16> {
 /// Locate the PRESSED_DATA section's raw bytes by walking the binary's section /
 /// load-command table — never an EOF footer. Dispatches on the leading magic.
 fn find_pressed_data_section(content: &[u8]) -> Option<&[u8]> {
+    find_section(content, inject::SectionKind::PressedData)
+}
+
+pub fn find_ffi_data_section(content: &[u8]) -> Option<&[u8]> {
+    find_section(content, inject::SectionKind::Ffi)
+}
+
+fn find_section(content: &[u8], kind: inject::SectionKind) -> Option<&[u8]> {
     match content.get(..4)? {
-        // Mach-O 64-bit, both endiannesses.
-        [0xcf, 0xfa, 0xed, 0xfe] | [0xfe, 0xed, 0xfa, 0xcf] => find_macho(content),
-        [0x7f, b'E', b'L', b'F'] => find_elf(content),
-        [b'M', b'Z', ..] => find_pe(content),
+        [0xcf, 0xfa, 0xed, 0xfe] | [0xfe, 0xed, 0xfa, 0xcf] => find_macho(content, kind),
+        [0x7f, b'E', b'L', b'F'] => find_elf(content, kind),
+        [b'M', b'Z', ..] => find_pe(content, kind),
         _ => None,
     }
 }
 
 /// Mach-O 64-bit (little-endian host): segment `SMOL` → section `__PRESSED_DATA` →
 /// its (offset, size) slice.
-fn find_macho(content: &[u8]) -> Option<&[u8]> {
+fn find_macho(content: &[u8], kind: inject::SectionKind) -> Option<&[u8]> {
     const LC_SEGMENT_64: u32 = 0x19;
     // mach_header_64: magic(4) cputype(4) cpusubtype(4) filetype(4) ncmds(4) ...
     let ncmds = read_u32_le(content, 16)?;
@@ -567,7 +582,7 @@ fn find_macho(content: &[u8]) -> Option<&[u8]> {
                 for _ in 0..nsects.min(1000) {
                     // section_64: sectname(16) segname(16) addr(8) size(8) offset(4) ...
                     let sectname = content.get(sect_off..sect_off + 16)?;
-                    if name_eq(sectname, b"__PRESSED_DATA") {
+                    if name_eq(sectname, kind.macho_name()) {
                         let size = read_u64_le(content, sect_off + 40)? as usize;
                         let offset = read_u32_le(content, sect_off + 48)? as usize;
                         return content.get(offset..offset.checked_add(size)?);
@@ -583,7 +598,7 @@ fn find_macho(content: &[u8]) -> Option<&[u8]> {
 
 /// ELF 64-bit: walk the section-header table, match `.PRESSED_DATA` against the
 /// section-header string table, return its (sh_offset, sh_size) slice.
-fn find_elf(content: &[u8]) -> Option<&[u8]> {
+fn find_elf(content: &[u8], kind: inject::SectionKind) -> Option<&[u8]> {
     // EI_CLASS at offset 4: 2 == 64-bit. Only 64-bit addons ship.
     if *content.get(4)? != 2 {
         return None;
@@ -604,7 +619,11 @@ fn find_elf(content: &[u8]) -> Option<&[u8]> {
     for i in 0..e_shnum {
         let shdr = e_shoff.checked_add(i.checked_mul(e_shentsize)?)?;
         let sh_name = read_u32_le(content, shdr)? as usize;
-        if cstr_at(strtab, sh_name) == Some(b".PRESSED_DATA".as_slice()) {
+        let expected_name = kind
+            .elf_name()
+            .strip_suffix(&[0])
+            .unwrap_or(kind.elf_name());
+        if cstr_at(strtab, sh_name) == Some(expected_name) {
             let sh_offset = read_u64_le(content, shdr + 24)? as usize;
             let sh_size = read_u64_le(content, shdr + 32)? as usize;
             return content.get(sh_offset..sh_offset.checked_add(sh_size)?);
@@ -615,7 +634,7 @@ fn find_elf(content: &[u8]) -> Option<&[u8]> {
 
 /// PE: parse the section table for `.PRESSED` (the 8-byte-name truncation of
 /// `.PRESSED_DATA`) and return its (PointerToRawData, SizeOfRawData) slice.
-fn find_pe(content: &[u8]) -> Option<&[u8]> {
+fn find_pe(content: &[u8], kind: inject::SectionKind) -> Option<&[u8]> {
     let pe_off = read_u32_le(content, 0x3c)? as usize;
     if content.get(pe_off..pe_off + 4)? != b"PE\0\0" {
         return None;
@@ -629,7 +648,7 @@ fn find_pe(content: &[u8]) -> Option<&[u8]> {
     let mut sect = coff + 20 + size_of_optional; // section table start
     for _ in 0..number_of_sections {
         let name = content.get(sect..sect + 8)?;
-        if name == b".PRESSED" {
+        if name == kind.pe_name() {
             let size_of_raw = read_u32_le(content, sect + 16)? as usize;
             let ptr_raw = read_u32_le(content, sect + 20)? as usize;
             return content.get(ptr_raw..ptr_raw.checked_add(size_of_raw)?);

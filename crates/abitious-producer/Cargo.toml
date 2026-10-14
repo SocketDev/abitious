@@ -1,7 +1,7 @@
 [package]
 name = "abitious-producer"
 publish = false
-description = "The abitious host producer: compress a real .node addon and inject + ad-hoc re-sign it into a generic stub's SMOL/__PRESSED_DATA section, emitting a self-loading hybrid .node."
+description = "The abitious host producer: compress N-API addons and native FFI libraries into self-loading carriers."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

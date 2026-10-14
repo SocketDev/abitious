@@ -27,6 +27,7 @@ mod build;
 mod inspect;
 mod json;
 mod metadata;
+mod pack_ffi;
 mod resolve;
 mod triple;
 
@@ -73,6 +74,11 @@ fn run<W: Write>(
             Ok(())
         }
         Command::Inspect(inspect_args) => inspect::run(&inspect_args),
+        Command::PackFfi(pack_args) => {
+            let receipt = pack_ffi::run(&pack_args)?;
+            let _ = writeln!(out, "{receipt}");
+            Ok(())
+        }
     }
 }
 
