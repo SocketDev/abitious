@@ -11,6 +11,7 @@ import {
   downloadPinnedNativeProducerArtifacts,
   resolveNativeProducerArtifacts,
 } from '../../../scripts/repo/npm/native-producer.mts'
+import type { NativeProducerDependencies } from '../../../scripts/repo/npm/native-producer.mts'
 import { TARGETS } from '../../../scripts/repo/targets.mts'
 
 const repository = 'SocketDev/abitious'
@@ -77,10 +78,10 @@ test('dispatch intent reconciles an ambiguous POST and resolves exact-source art
     let dispatches = 0
     const artifacts = artifactRows()
     const requests: string[] = []
-    const request = async (
-      endpoint: string,
-      options?: { method?: 'GET' | 'POST'; input?: unknown },
-    ): Promise<Buffer> => {
+    const request: NativeProducerDependencies['request'] = async (
+      endpoint,
+      options,
+    ) => {
       requests.push(endpoint)
       if (options?.method === 'POST') {
         dispatches += 1
@@ -172,10 +173,10 @@ test('does not reuse a successful run without signed macOS outputs', async () =>
     const artifacts = artifactRows(archiveBytes)
     const unsignedRun = producerRun(44)
     const signedRun = producerRun(77)
-    const request = async (
-      endpoint: string,
-      options?: { method?: 'GET' | 'POST'; input?: unknown },
-    ): Promise<Buffer> => {
+    const request: NativeProducerDependencies['request'] = async (
+      endpoint,
+      options,
+    ) => {
       if (options?.method === 'POST') {
         dispatches += 1
         return Buffer.alloc(0)
@@ -245,10 +246,10 @@ test('rejects ambiguous new runs after an accepted dispatch', async () => {
   try {
     let runListings = 0
     let dispatches = 0
-    const request = async (
-      endpoint: string,
-      options?: { method?: 'GET' | 'POST'; input?: unknown },
-    ): Promise<Buffer> => {
+    const request: NativeProducerDependencies['request'] = async (
+      endpoint,
+      options,
+    ) => {
       if (options?.method === 'POST') {
         dispatches += 1
         throw new Error('connection closed after dispatch acceptance')

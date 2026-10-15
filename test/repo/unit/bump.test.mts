@@ -116,7 +116,7 @@ describe('repo bump overlay', () => {
       return 0
     })
     expect(
-      runBumpOverlay(root, ['--json', '--release-as', '0.2.0'], runner),
+      runBumpOverlay(root, ['--json', '--release-as', '0.2.0'], { runner }),
     ).toEqual(['Cargo.toml', 'Cargo.lock', 'fuzz/Cargo.lock'])
     expect(read(root, 'Cargo.toml')).toContain('version = "0.2.0"')
     expect(read(root, 'Cargo.toml')).toContain('decmpfs = "=0.1.5"')
@@ -154,7 +154,7 @@ describe('repo bump overlay', () => {
       expect(args).toEqual(['--dry-run', '--write-only'])
       return 0
     })
-    expect(runBumpOverlay(root, ['--dry-run'], runner)).toEqual([])
+    expect(runBumpOverlay(root, ['--dry-run'], { runner })).toEqual([])
     expect(read(root, 'Cargo.toml')).toBe(cargo)
     expect(read(root, 'Cargo.lock')).toBe(lock)
   })
@@ -163,7 +163,7 @@ describe('repo bump overlay', () => {
     const root = makeFixture()
     const cargo = read(root, 'Cargo.toml')
     const lock = read(root, 'Cargo.lock')
-    expect(() => runBumpOverlay(root, [], () => 1)).toThrow(
+    expect(() => runBumpOverlay(root, [], { runner: () => 1 })).toThrow(
       /Canonical npm bump exited 1/u,
     )
     expect(read(root, 'Cargo.toml')).toBe(cargo)

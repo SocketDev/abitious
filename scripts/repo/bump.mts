@@ -31,6 +31,7 @@ export function canonicalBumpArgs(args: readonly string[]): string[] {
 }
 
 function stableVersionParts(version: string): readonly number[] {
+  // Capture each numeric component and reject leading zeroes except for zero.
   const match = version.match(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/)
   if (!match) {
     throw new Error(`Invalid stable version ${version}. Fix: use X.Y.Z.`)
@@ -69,7 +70,8 @@ function workspaceCrateNames(root: string, cargo: string): string[] {
     return member.slice('crates/'.length)
   })
   const names: string[] = []
-  for (const dir of dirs) {
+  for (let i = 0, { length } = dirs; i < length; i += 1) {
+    const dir = dirs[i]!
     const manifestPath = path.join(root, 'crates', dir, 'Cargo.toml')
     const manifest = readFileSync(manifestPath, 'utf8')
     const name = manifest.match(/^name\s*=\s*"([^"]+)"/m)?.[1]
@@ -95,6 +97,7 @@ function workspaceCrateNames(root: string, cargo: string): string[] {
 
 function localLockEntries(text: string): CargoLockEntry[] {
   const starts: number[] = []
+  // Match package headers as whole lines, allowing CRLF and trailing spaces.
   const matcher = /^\[\[package\]\]\s*$/gmu
   for (let match = matcher.exec(text); match; match = matcher.exec(text)) {
     starts.push(match.index)
@@ -125,26 +128,24 @@ function bumpLocalLockEntries(
   names: readonly string[],
   current: string,
   target: string,
-  required: boolean,
 ): string {
   const nameSet = new Set(names)
   const entries = localLockEntries(text)
   const matched = entries.filter(
     entry => nameSet.has(entry.name) && entry.source === undefined,
   )
-  if (required) {
-    const found = new Set(matched.map(entry => entry.name))
-    const missing = names.filter(name => !found.has(name))
-    const duplicates = names.filter(
-      name => matched.filter(entry => entry.name === name).length !== 1,
+  const found = new Set(matched.map(entry => entry.name))
+  const missing = names.filter(name => !found.has(name))
+  const duplicates = names.filter(
+    name => matched.filter(entry => entry.name === name).length !== 1,
+  )
+  if (missing.length || duplicates.length) {
+    throw new Error(
+      `Cargo.lock workspace entries are missing or duplicated: ${[...new Set([...missing, ...duplicates])].join(', ')}. Fix: regenerate Cargo.lock before bumping.`,
     )
-    if (missing.length || duplicates.length) {
-      throw new Error(
-        `Cargo.lock workspace entries are missing or duplicated: ${[...new Set([...missing, ...duplicates])].join(', ')}. Fix: regenerate Cargo.lock before bumping.`,
-      )
-    }
   }
-  for (const entry of matched) {
+  for (let i = 0, { length } = matched; i < length; i += 1) {
+    const entry = matched[i]!
     if (entry.version !== current) {
       throw new Error(
         `Cargo.lock ${entry.name} is ${entry.version}, wanted workspace version ${current}. Fix: synchronize the lockfile before bumping.`,
@@ -153,8 +154,10 @@ function bumpLocalLockEntries(
   }
   let result = ''
   let cursor = 0
-  for (const entry of matched) {
+  for (let i = 0, { length } = matched; i < length; i += 1) {
+    const entry = matched[i]!
     const block = text.slice(entry.start, entry.end)
+    // Keep the version assignment and surrounding whitespace unchanged.
     const updated = block.replace(
       /^(version\s*=\s*")[^"]+("\s*)$/m,
       (_line, before: string, after: string) => `${before}${target}${after}`,
@@ -164,13 +167,14 @@ function bumpLocalLockEntries(
   }
   result += text.slice(cursor)
   const localNames = new Set(names)
+  // Capture package, version and optional source to update local lock references.
   return result.replace(
     /"([^"]+) ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))(?: \(([^"]+)\))?"/gu,
     (entry, name: string, version: string, source: string | undefined) =>
       localNames.has(name) &&
       version === current &&
       (!source || source.startsWith('path+'))
-        ? entry.replace(version, target)
+        ? entry.replace(version, () => target)
         : entry,
   )
 }
@@ -235,7 +239,7 @@ export function syncCargoVersion(root: string, target: string): string[] {
   validateInternalPins(cargo, current)
   const names = workspaceCrateNames(root, cargo)
   const lock = readFileSync(lockPath, 'utf8')
-  const updatedLock = bumpLocalLockEntries(lock, names, current, target, true)
+  const updatedLock = bumpLocalLockEntries(lock, names, current, target)
   const fuzzNames = fuzzLocalCrateNames(root, names)
   const originalFuzzLock = existsSync(fuzzLockPath)
     ? readFileSync(fuzzLockPath, 'utf8')
@@ -243,7 +247,7 @@ export function syncCargoVersion(root: string, target: string): string[] {
   const fuzzLock =
     originalFuzzLock === undefined
       ? undefined
-      : bumpLocalLockEntries(originalFuzzLock, fuzzNames, current, target, true)
+      : bumpLocalLockEntries(originalFuzzLock, fuzzNames, current, target)
   const updatedCargo = bumpWorkspaceCargo(cargo, target)
   if (workspaceVersion(updatedCargo) !== target) {
     throw new Error(
@@ -293,13 +297,15 @@ function runCanonicalBump(
 export function runBumpOverlay(
   root: string,
   args: readonly string[],
-  runner: CanonicalBumpRunner = runCanonicalBump,
+  options: { runner?: CanonicalBumpRunner | undefined } = {},
 ): string[] {
   const canonicalArgs = canonicalBumpArgs(args)
-  const status = runner(root, path.join(root, CANONICAL_BUMP), canonicalArgs, {
-    ...process.env,
-    SOCKET_SHIM_ACTIVE_PNPM: '1',
-  })
+  const status = (options.runner ?? runCanonicalBump)(
+    root,
+    path.join(root, CANONICAL_BUMP),
+    canonicalArgs,
+    { ...process.env, SOCKET_SHIM_ACTIVE_PNPM: '1' },
+  )
   if (status !== 0) {
     throw new Error(
       `Canonical npm bump exited ${status ?? 'on a signal'}. Fix: resolve the npm bump before Cargo synchronization.`,
@@ -308,11 +314,11 @@ export function runBumpOverlay(
   if (args.some(arg => arg === '--dry-run' || arg.startsWith('--dry-run='))) {
     return []
   }
-  let manifest: { version?: unknown }
+  let manifest: { version?: unknown | undefined }
   try {
     manifest = JSON.parse(
       readFileSync(path.join(root, 'npm', 'cli', 'package.json'), 'utf8'),
-    ) as { version?: unknown }
+    ) as { version?: unknown | undefined }
   } catch {
     throw new Error(
       'npm/cli/package.json is unreadable. Fix: run the canonical npm bump first.',
