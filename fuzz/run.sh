@@ -18,7 +18,17 @@ FUZZ_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DICT="$FUZZ_DIR/fuzz.dict"
 DURATION="${2:-600}"
 FUZZ_TOOLCHAIN="${FUZZ_TOOLCHAIN:-nightly}"
-FUZZ_TARGET_TRIPLE="${FUZZ_TARGET_TRIPLE:-}"
+if [ -z "${FUZZ_TARGET_TRIPLE:-}" ]; then
+  if ! RUSTC_DETAILS="$(rustc -vV)"; then
+    echo "Cannot detect the fuzz host: rustc -vV failed. Set FUZZ_TARGET_TRIPLE to select a target." >&2
+    exit 1
+  fi
+  FUZZ_TARGET_TRIPLE="$(printf '%s\n' "$RUSTC_DETAILS" | sed -n 's/^host: //p')"
+  if [ -z "$FUZZ_TARGET_TRIPLE" ]; then
+    echo "Cannot detect the fuzz host: rustc reported no host. Set FUZZ_TARGET_TRIPLE to select a target." >&2
+    exit 1
+  fi
+fi
 
 # Per-target libFuzzer flags, calibrated for the ASan + coverage instrumentation
 # cargo-fuzz builds with:
@@ -52,19 +62,10 @@ run_fuzz() {
 run_one() {
   local t="$1"
   echo "===== fuzz: $t (max_total_time=${DURATION}s) ====="
-  # `--target <triple>` only when FUZZ_TARGET_TRIPLE is set (default: host target).
-  # Passed positionally rather than via an array so this stays bash-3.2 safe under
-  # `set -u` (empty-array expansion is an unbound-variable error on macOS bash).
   # shellcheck disable=SC2046
-  if [ -n "$FUZZ_TARGET_TRIPLE" ]; then
-    run_fuzz run --target "$FUZZ_TARGET_TRIPLE" "$t" -- \
-      -max_total_time="$DURATION" -dict="$DICT" -print_final_stats=1 \
-      $(target_flags "$t")
-  else
-    run_fuzz run "$t" -- \
-      -max_total_time="$DURATION" -dict="$DICT" -print_final_stats=1 \
-      $(target_flags "$t")
-  fi
+  run_fuzz run --target "$FUZZ_TARGET_TRIPLE" "$t" -- \
+    -max_total_time="$DURATION" -dict="$DICT" -print_final_stats=1 \
+    $(target_flags "$t")
 }
 
 case "${1:-all}" in
