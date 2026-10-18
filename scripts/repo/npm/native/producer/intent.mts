@@ -85,17 +85,19 @@ export function writeIntent(receiptPath: string, intent: DispatchIntent): void {
   writeFileSync(temporary, `${JSON.stringify(intent, null, 2)}\n`, {
     mode: 0o600,
   })
-  const file = openSync(temporary, 'r')
+  const file = openSync(temporary, 'r+')
   try {
     fsyncSync(file)
   } finally {
     closeSync(file)
   }
   renameSync(temporary, receiptPath)
-  const directoryHandle = openSync(directory, 'r')
-  try {
-    fsyncSync(directoryHandle)
-  } finally {
-    closeSync(directoryHandle)
+  if (process.platform !== 'win32') {
+    const directoryHandle = openSync(directory, 'r')
+    try {
+      fsyncSync(directoryHandle)
+    } finally {
+      closeSync(directoryHandle)
+    }
   }
 }

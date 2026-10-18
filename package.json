@@ -178,8 +178,6 @@
     "setup:token:rotate": "node scripts/fleet/setup/token.mts --rotate",
     "setup:xcode": "node scripts/fleet/setup/xcode-license.mts",
     "setup:xcode-license": "node scripts/fleet/setup/xcode-license.mts",
-    "slack:auth": "node scripts/fleet/setup/slack-token.mts",
-    "slack:token": "node scripts/fleet/setup/slack-token.mts",
     "soak:bypass": "node scripts/fleet/soak-bypass.mts",
     "soak:check": "node scripts/fleet/check/soak-time-is-consistent.mts",
     "socket-wheelhouse:emit-schema": "node scripts/fleet/socket-wheelhouse-emit-schema.mts",
