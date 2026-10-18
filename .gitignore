@@ -2670,6 +2670,7 @@ docs/fleet/agents.md/cascade-is-a-unit.md
 docs/fleet/agents.md/cascaded-hook-catalog.md
 docs/fleet/agents.md/check-names.md
 docs/fleet/agents.md/ci-env-is-runner-only.md
+docs/fleet/agents.md/ci-required-vs-follow-up.md
 docs/fleet/agents.md/claim-before-you-work.md
 docs/fleet/agents.md/claude-md-is-a-bullet-index.md
 docs/fleet/agents.md/code-first-then-ai.md
@@ -2732,6 +2733,7 @@ docs/fleet/agents.md/lockstep.md
 docs/fleet/agents.md/long-running-tasks.md
 docs/fleet/agents.md/match-error-codes-not-messages.md
 docs/fleet/agents.md/max-file-lines-hard-cap-only.md
+docs/fleet/agents.md/mcp-routing.md
 docs/fleet/agents.md/memory-codification.md
 docs/fleet/agents.md/module-naming.md
 docs/fleet/agents.md/multi-ecosystem-soak.md
@@ -3053,6 +3055,10 @@ scripts/fleet/ai/browser/bridge/extension/icons/shield-128.png
 scripts/fleet/ai/browser/bridge/extension/icons/shield-16.png
 scripts/fleet/ai/browser/bridge/extension/icons/shield-32.png
 scripts/fleet/ai/browser/bridge/extension/icons/shield-48.png
+scripts/fleet/ai/browser/bridge/extension/icons/shield-off-128.png
+scripts/fleet/ai/browser/bridge/extension/icons/shield-off-16.png
+scripts/fleet/ai/browser/bridge/extension/icons/shield-off-32.png
+scripts/fleet/ai/browser/bridge/extension/icons/shield-off-48.png
 scripts/fleet/ai/browser/bridge/extension/jev/observation.mts
 scripts/fleet/ai/browser/bridge/extension/launcher.mts
 scripts/fleet/ai/browser/bridge/extension/lifecycle.mts
@@ -3434,6 +3440,8 @@ scripts/fleet/build-hook-snapshot.mts
 scripts/fleet/build-infra/lib/external-tools-schema.json
 scripts/fleet/build-oxlint-bundle.mts
 scripts/fleet/build-snapshot-launcher.mts
+scripts/fleet/build/cargo.mts
+scripts/fleet/build/cargo/run.mts
 scripts/fleet/build/compiler.mts
 scripts/fleet/build/infra/lib/external-tools-schema.json
 scripts/fleet/build/mode.mts
@@ -3545,6 +3553,7 @@ scripts/fleet/check/comment-markers-are-honeypot-inert.mts
 scripts/fleet/check/comment-review-policy-is-enforced.mts
 scripts/fleet/check/commits-are-signed.mts
 scripts/fleet/check/commits-have-no-ai-attribution.mts
+scripts/fleet/check/commits-have-no-ai-attribution/candidate-scope.mts
 scripts/fleet/check/commits-have-no-ai-attribution/commit-history.mts
 scripts/fleet/check/commits-have-no-ai-attribution/registry-boundary.mts
 scripts/fleet/check/commits-have-no-ai-attribution/release-boundary.mts
@@ -4042,6 +4051,7 @@ scripts/fleet/credentials/gh/capture-best.mts
 scripts/fleet/credentials/gh/keychain.mts
 scripts/fleet/credentials/gh/metadata.mts
 scripts/fleet/credentials/gh/run.mts
+scripts/fleet/credentials/gh/sockeye.mts
 scripts/fleet/credentials/gh/storage.mts
 scripts/fleet/credentials/gh/token-library.mts
 scripts/fleet/credentials/gh/unlock.mts
@@ -4485,9 +4495,12 @@ scripts/fleet/mcp/pgbot/run.mts
 scripts/fleet/mcp/playwright/run.mts
 scripts/fleet/mcp/protocol.mts
 scripts/fleet/mcp/providers.mts
+scripts/fleet/mcp/recommendation-catalog.mts
 scripts/fleet/mcp/recommendations.mts
 scripts/fleet/mcp/reset-process.mts
 scripts/fleet/mcp/reset.mts
+scripts/fleet/mcp/routing-inventory.mts
+scripts/fleet/mcp/routing.mts
 scripts/fleet/mcp/schemas.mts
 scripts/fleet/mcp/slack/client.mts
 scripts/fleet/mcp/slack/credential.mts
@@ -5035,6 +5048,7 @@ scripts/fleet/security/codeql-posture.mts
 scripts/fleet/security/codeql-workflow.mts
 scripts/fleet/security/posture-gh-read.mts
 scripts/fleet/security/posture-probe.mts
+scripts/fleet/security/skillspector.mts
 scripts/fleet/serve-reports.mts
 scripts/fleet/setup/activate-node.mts
 scripts/fleet/setup/ai-client-tools.mts
@@ -5155,6 +5169,8 @@ scripts/fleet/setup/security/tools.mts
 scripts/fleet/setup/security/update.mts
 scripts/fleet/setup/seed-balancer-aliases.mts
 scripts/fleet/setup/sfw-ca.mts
+scripts/fleet/setup/signing/README.md
+scripts/fleet/setup/signing/install.mts
 scripts/fleet/setup/slack-token.mts
 scripts/fleet/setup/socket-token-presence.generated.mjs
 scripts/fleet/setup/socket-token-presence.mts
@@ -5368,9 +5384,13 @@ scripts/fleet/worktree/landed.mts
 scripts/fleet/worktree/landing-history.mts
 scripts/fleet/worktree/policy.mts
 scripts/fleet/worktree/removal.mts
+scripts/fleet/worktree/retained-files.mts
+scripts/fleet/worktree/retained-files/path.mts
+scripts/fleet/worktree/retained-files/reconcile.mts
 scripts/fleet/worktree/safety.mts
 scripts/fleet/worktree/submodules.mts
 scripts/fleet/worktree/sweep/args.mts
+scripts/fleet/worktree/sweep/inspect.mts
 scripts/fleet/worktree/sweep/lifecycle.mts
 scripts/fleet/worktree/sweep/queue.mts
 scripts/fleet/worktree/sweep/run.mts
