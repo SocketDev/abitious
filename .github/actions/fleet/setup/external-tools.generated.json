@@ -341,8 +341,8 @@
     },
     "google-chrome-beta": {
       "description": "Google Chrome Beta for the Gemma on-device AI backend",
-      "version": "155.0.8059.12-1",
-      "versionDate": "2026-09-23T16:28:19.340691Z",
+      "version": "156.0.8078.12-1",
+      "versionDate": "2026-10-07T14:58:44.126486Z",
       "chromeVersionExclusions": [
         {
           "version": "154.0.8037.0-1",
@@ -356,8 +356,12 @@
       ],
       "platforms": {
         "linux-x64": {
-          "asset": "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-beta/google-chrome-beta_155.0.8059.12-1_amd64.deb",
-          "integrity": "sha512-Y+OdK+18q5zuh22tBx65KOZQlEPMg5cjLMfTNAR6umECNbJb2tJB4UEE5qWuRX0BNw3WfURarHvxIizjQQVd3A=="
+          "asset": "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-beta/google-chrome-beta_156.0.8078.12-1_amd64.deb",
+          "integrity": {
+            "value": "sha256-edf8b363114b320e84e30ea358e1e30f7827adb621e84a50bcbfbd0231cc58f9",
+            "src": "https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-amd64/Packages",
+            "date": "2026-10-16"
+          }
         }
       },
       "origin": "node-dist"
@@ -369,12 +373,12 @@
         "The odai image must pass model session creation and offline inference before publication."
       ],
       "description": "Google Chrome stable .deb for the odai backend, pinned and integrity-verified before installation",
-      "version": "154.0.8037.97-1",
-      "versionDate": "2026-10-02T00:56:19.827163Z",
+      "version": "155.0.8059.39-1",
+      "versionDate": "2026-10-06T17:09:07.199909Z",
       "platforms": {
         "linux-x64": {
-          "asset": "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_154.0.8037.97-1_amd64.deb",
-          "integrity": "sha512-mQ8TPxCR0K6kjMC/vMjzA/7oDRKKk/AveRDA4LtGxF7paXGHkDfN4QC7NYmShP/0/lsXKs6bnV5kZdRfMR0a4A=="
+          "asset": "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_155.0.8059.39-1_amd64.deb",
+          "integrity": "sha512-QrTsnsYf7lMqhI/fNZc9OrpsCDAo7kXJhXLxu9nlHoZcvVv5+75pW2yadpNkcqrM1Y+GDsuLzOOAr6b9V7y0cg=="
         }
       },
       "origin": "node-dist"
@@ -421,12 +425,7 @@
           "integrity": "sha512-BflfuUwzGfNGYPnbhIjs2bDXTSjpNqpXUjZ4AjPQhN/Eklpg1K2dlnyfeJX2ZQCikLknO02e5QnowSxuFgiihw=="
         }
       },
-      "description": "Cache front-end for cargo: put mbx in front of any cargo command and one cache warms every worktree and CI run, pruning itself to a size budget.",
-      "soakBypass": {
-        "published": "2026-10-03",
-        "removable": "2026-10-10",
-        "version": "1.22.0"
-      }
+      "description": "Cache front-end for cargo: put mbx in front of any cargo command and one cache warms every worktree and CI run, pruning itself to a size budget."
     },
     "mise": {
       "binaryName": "mise",
@@ -521,12 +520,7 @@
           "integrity": "sha512-zaBDy80sdWAo7Ht71p1wmrgyTvdN1FkeirMzKTHH++kX+ahDzEPaeoGsLEvFTR20OL8VysuLGKQVfxhbSqNlRA=="
         }
       },
-      "description": "mold high-speed ELF linker for Linux builds",
-      "soakBypass": {
-        "version": "3.0.0",
-        "published": "2026-10-05",
-        "removable": "2026-10-12"
-      }
+      "description": "mold high-speed ELF linker for Linux builds"
     },
     "npm": {
       "notes": [
@@ -538,11 +532,6 @@
       "repository": "npm:npm",
       "version": "12.2.0",
       "integrity": "sha512-ZsJjKpTnlmSXOLLXiU1xDCzC4Wlok4IwZmh/aw2KUuXytU7q6qMv/cUT7MoeSf95Slwuw/lRXYefGzGCspHPNQ==",
-      "soakBypass": {
-        "version": "12.2.0",
-        "published": "2026-09-30",
-        "removable": "2026-10-07"
-      },
       "origin": "npm"
     },
     "opencode": {
@@ -915,12 +904,7 @@
           "integrity": "sha512-zi2isECucghnSVLVDjTaABKr/2nsmiUHVGEELcj1/7DRLbFIYLq+m3zpcfRJTLstElWbht2PjIJQuHWtnrzLrw=="
         }
       },
-      "origin": "gh-asset",
-      "soakBypass": {
-        "published": "2026-10-01",
-        "removable": "2026-10-08",
-        "version": "1.15.4"
-      }
+      "origin": "gh-asset"
     },
     "sfw-free": {
       "notes": [
@@ -962,12 +946,7 @@
           "integrity": "sha512-kh7yWn5TzLGI+rpujGwzX+HIaVa1/BHTVpJ58cBAYnwPSuYRhgUciX0vqKKoK3P3nYYMGrN7IvhZ4L91krsYLw=="
         }
       },
-      "origin": "gh-asset",
-      "soakBypass": {
-        "published": "2026-10-01",
-        "removable": "2026-10-08",
-        "version": "1.15.4"
-      }
+      "origin": "gh-asset"
     },
     "uv": {
       "notes": [
@@ -1006,12 +985,7 @@
           "integrity": "sha512-8vtkGZbm5WXtEcuwkrgp50tNdxZpHah9tcwR/F9uMeNgw1yYTyVf6RYHhvliPnPUpMY3JEdzgUbID4LOhLflsw=="
         }
       },
-      "origin": "gh-asset",
-      "soakBypass": {
-        "version": "0.12.23",
-        "published": "2026-10-03",
-        "removable": "2026-10-10"
-      }
+      "origin": "gh-asset"
     },
     "zizmor": {
       "description": "GitHub Actions security linter — audits .github/ for workflow-injection / credential-leak patterns.",

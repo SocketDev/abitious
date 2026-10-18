@@ -1,5 +1,5 @@
-name: 'release: npm record'
-run-name: 'release: npm record (${{ inputs.version }})'
+name: "release: npm record"
+run-name: "release: npm record ${{ inputs.version }})"
 
 on:
   workflow_dispatch:

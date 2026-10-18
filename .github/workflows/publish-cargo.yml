@@ -39,6 +39,7 @@ jobs:
       id-token: write # crates.io Trusted Publishing (OIDC) + provenance
       attestations: write # build provenance for the .crate
     env:
+      MBX_REMOTE_URL: ''
       SOCKET_API_TOKEN: ${{ secrets.SOCKET_API_TOKEN_FOR_CLI_AND_SFW }}
     steps:
       - name: Bootstrap checkout
@@ -68,22 +69,10 @@ jobs:
 
       - name: Set up and install
         uses: ./.github/actions/fleet/setup-and-install
-        with:
-          payload-token-client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
-          payload-token-private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
-      # Fleet composites, not the third-party actions they replace: a raw
-      # `uses:` here would force dtolnay/rust-toolchain and Swatinem/rust-cache
-      # onto the Actions allowlist of every repo seeded from this preset, and a
-      # strict-allowlist repo plan-fails with 0 jobs when one is missing.
       - name: Rust toolchain
         uses: ./.github/actions/fleet/setup-rust-toolchain
         with:
           channel: nightly
-      - name: Rust cache
-        uses: ./.github/actions/fleet/setup-rust-cache
-        with:
-          prefix-key: cargo-publish
-          workspaces: .
       - name: Mint PR branch token for nightly bump
         if: ${{ inputs.nightly-version != '' }}
         id: pr-branch-app
@@ -167,8 +156,3 @@ jobs:
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2 (2025-06-11)
         with:
           subject-path: target/package/*.crate
-      - name: Save Rust cache
-        if: ${{ !cancelled() }}
-        uses: ./.github/actions/fleet/setup-rust-cache
-        with:
-          phase: save
