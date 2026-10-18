@@ -137,7 +137,7 @@ test('aggregation builds all producer bundles with verified eight-target templat
           row.sha512,
         )
       }
-      if (target.os !== 'win32') {
+      if (os.platform() !== 'win32' && target.os !== 'win32') {
         const producer = path.join(bundle, abiBin(target.os))
         assert.equal(statSync(producer).mode & 0o777, 0o755)
       }
