@@ -7,6 +7,7 @@ import { spawnSync } from '@socketsecurity/lib-stable/process/spawn/child'
 import { isMainModule } from '../../scripts/fleet/process/is-main-module.mts'
 import { runMain } from '../../scripts/fleet/process/main/run.mts'
 import type { ScriptMeta } from '../../scripts/fleet/process/main/run.mts'
+import { resolveNpmCliPackageJsonPath } from './_shared/paths.mts'
 import { bumpWorkspaceCargo, workspaceVersion } from './release-lib.mts'
 
 const CANONICAL_BUMP = 'scripts/fleet/release/bump/run.mts'
@@ -317,7 +318,7 @@ export function runBumpOverlay(
   let manifest: { version?: unknown | undefined }
   try {
     manifest = JSON.parse(
-      readFileSync(path.join(root, 'npm', 'cli', 'package.json'), 'utf8'),
+      readFileSync(resolveNpmCliPackageJsonPath(root), 'utf8'),
     ) as { version?: unknown | undefined }
   } catch {
     throw new Error(

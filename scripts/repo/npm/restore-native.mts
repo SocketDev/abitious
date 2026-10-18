@@ -30,6 +30,7 @@ import {
   validateNativePackageReceipt,
 } from './native-receipt.mts'
 import { stageNativeProducerPayloads } from './native-validation.mts'
+import { resolveNpmCliPackageJsonPath } from '../_shared/paths.mts'
 
 const REPO_ROOT = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -223,7 +224,7 @@ export async function restoreNativePackages(): Promise<void> {
     throw receiptFailure('checked-out scan source')
   }
   const cliManifest = JSON.parse(
-    readFileSync(path.join(REPO_ROOT, 'npm', 'cli', 'package.json'), 'utf8'),
+    readFileSync(resolveNpmCliPackageJsonPath(REPO_ROOT), 'utf8'),
   ) as { version?: unknown }
   if (cliManifest.version !== expectedVersion) {
     throw receiptFailure('CLI package version')
@@ -355,7 +356,7 @@ export async function verifyNativePackagesForPublish(
     ? (getEnvValue('NATIVE_PUBLISH_RUN_ATTEMPT') ?? '')
     : (getEnvValue('GITHUB_RUN_ATTEMPT') ?? '')
   const cliManifest = JSON.parse(
-    readFileSync(path.join(REPO_ROOT, 'npm', 'cli', 'package.json'), 'utf8'),
+    readFileSync(resolveNpmCliPackageJsonPath(REPO_ROOT), 'utf8'),
   ) as { version?: unknown }
   const expectedVersion =
     (scanRunText
