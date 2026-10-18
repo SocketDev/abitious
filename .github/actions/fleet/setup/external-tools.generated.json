@@ -403,29 +403,35 @@
       "origin": "gh-asset"
     },
     "mbx": {
-      "version": "1.22.0",
-      "tag": "v1.22.0",
+      "version": "1.24.1",
+      "tag": "v1.24.1",
       "repository": "github:jdx/mr-boxington",
       "origin": "gh-asset",
       "platforms": {
         "darwin-arm64": {
           "asset": "mbx-aarch64-apple-darwin.tar.gz",
-          "integrity": "sha512-Tjab3gdmPQtkmEvsjgjOqMzEWWxBCsAlQifXCcN/mv8oRH1BN8RRthm8jVdQ9PsNQjEhIhyYYlnhcysJ4+1YRg=="
+          "integrity": "sha512-D60ncHlyFaXgyFs6aGj5HCMFFWFlqMiHzDEbyDFmS5GpqSav2cpx5OQ9FYvqW35T0myEb6lv/DsziB/3MUH7/g=="
         },
         "linux-arm64-musl": {
           "asset": "mbx-aarch64-unknown-linux-musl.tar.gz",
-          "integrity": "sha512-qgsbEFeo6J9K7tH4K2hfFJjV6Rm6s26na2eEd8nw/qsSLzw/8E26rWrhTqsyXPog7f160iWG3/u6XV2sgSaYvg=="
+          "integrity": "sha512-OK/BQ8h9G5PKKzg3jHbjCoyixhAX8/if9sOvLo+pA+qUxPkvow5dpFOH6FvcAGW1CeNNUXOCBuztstwKfmJM9g=="
         },
         "linux-x64-musl": {
           "asset": "mbx-x86_64-unknown-linux-musl.tar.gz",
-          "integrity": "sha512-tdOgq9JazUqnPrDkwsCd77mZpao5kNCaXSun1QdV690X/LneoSzh0AK0z/609n6X8awdg4JNGsHolJs7WNbU2g=="
+          "integrity": "sha512-M19aTOiGUged/qI4VTCpt3OpEERGiBmpzdMod5pZUvLhN5DbhXZhstFhZtG3cpK5WUokQg4XBEWbudVjWytf2w=="
         },
         "win32-x64": {
           "asset": "mbx-x86_64-pc-windows-msvc.zip",
-          "integrity": "sha512-BflfuUwzGfNGYPnbhIjs2bDXTSjpNqpXUjZ4AjPQhN/Eklpg1K2dlnyfeJX2ZQCikLknO02e5QnowSxuFgiihw=="
+          "integrity": "sha512-mKg9IeZqUIARkAe86hsGDHVGIYS6cdAnc1fp0es18uujI5k+lkeg9LNc8gdhdJ0jQfx2GJIwIHx68wZ9TzTKmw=="
         }
       },
-      "description": "Cache front-end for cargo: put mbx in front of any cargo command and one cache warms every worktree and CI run, pruning itself to a size budget."
+      "description": "Cache front-end for cargo: put mbx in front of any cargo command and one cache warms every worktree and CI run, pruning itself to a size budget.",
+      "soakBypass": {
+        "version": "1.24.1",
+        "published": "2026-10-16",
+        "removable": "2026-10-23"
+      },
+      "versionDate": "2026-10-16"
     },
     "mise": {
       "binaryName": "mise",
@@ -494,11 +500,6 @@
           "binary": "mise/bin/mise.exe",
           "integrity": "sha512-bqxT4/JBwKzs+kAvuc6u8/J9CHwPU+Q49bULZ308aJzp6QEpoPZzsbtqYB2pqCw1pu5UFO3vc1gpIE3uedkzmA=="
         }
-      },
-      "soakBypass": {
-        "published": "2026-10-09",
-        "removable": "2026-10-16",
-        "version": "2026.10.7"
       }
     },
     "mold": {

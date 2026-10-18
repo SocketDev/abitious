@@ -37,6 +37,7 @@ jobs:
     permissions:
       contents: write # registry/cargo/publish/run.mts tags + cuts the GitHub release
       id-token: write # crates.io Trusted Publishing (OIDC) + provenance
+      attestations: write # build provenance for the .crate
     env:
       MBX_REMOTE_URL: ''
       SOCKET_API_TOKEN: ${{ secrets.SOCKET_API_TOKEN_FOR_CLI_AND_SFW }}
@@ -68,10 +69,6 @@ jobs:
 
       - name: Set up and install
         uses: ./.github/actions/fleet/setup-and-install
-        with:
-          socket-api-token: ${{ secrets.SOCKET_API_TOKEN_FOR_CLI_AND_SFW }}
-          payload-token-client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
-          payload-token-private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
       - name: Rust toolchain
         uses: ./.github/actions/fleet/setup-rust-toolchain
         with:
@@ -155,3 +152,7 @@ jobs:
         env:
           CRATES_IO_TOKEN: ${{ steps.auth.outputs.token }}
         run: node scripts/fleet/registry/cargo/trusted-token.mts --revoke
+      - name: Attest build provenance (.crate)
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2 (2025-06-11)
+        with:
+          subject-path: target/package/*.crate

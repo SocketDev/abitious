@@ -760,10 +760,10 @@ jobs:
           client-id: ${{ secrets.SOCKET_PR_CLIENT_ID || vars.SOCKET_PR_CLIENT_ID }}
           private-key: ${{ secrets.SOCKET_PR_APP_PRIVATE_KEY }}
           repositories: ${{ github.event.repository.name }}
-      - name: 'Mint release token'
+      - name: 'Mint release ledger token'
         if: ${{ steps.content-trust.outputs.trusted == 'true' }}
-        id: release-app
-        uses: ./.github/actions/fleet/github-release-app-token
+        id: release-ledger-app
+        uses: ./.github/actions/fleet/github-release-ledger-app-token
         with:
           client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
           private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
@@ -781,9 +781,10 @@ jobs:
           NIGHTLY_VERSION: ${{ inputs.nightly-version }}
           PR_APP_TOKEN: ${{ steps.pr-branch-app.outputs.token }}
           RELEASE_AS: ${{ inputs.release-as }}
+          RELEASE_LEDGER_TOKEN: ${{ steps.release-ledger-app.outputs.token }}
           RESUME_PUBLISH: ${{ inputs.resume-publish }}
-          RELEASE_APP_TOKEN: ${{ steps.release-app.outputs.token }}
-          GH_TOKEN: ${{ steps.release-app.outputs.token }}
+          RELEASE_APP_TOKEN: ${{ steps.release-ledger-app.outputs.token }}
+          GH_TOKEN: ${{ steps.release-ledger-app.outputs.token }}
         run: |
           args=(--tag "$DIST_TAG")
           if [ -n "$RELEASE_AS" ]; then args+=(--release-as "$RELEASE_AS"); fi
@@ -946,6 +947,14 @@ jobs:
           PUBLISH_TASK_NAME: ${{ inputs.task-name }}
           SCAN_PACKAGE: ${{ inputs.scan-package }}
         run: node scripts/fleet/registry/npm/publish-dispatch-context.mts --name "$PUBLISH_TASK_NAME" --package "$SCAN_PACKAGE"
+      - name: Mint read-only release ledger token
+        id: release-ledger-read-app
+        uses: ./.github/actions/fleet/github-release-ledger-read-app-token
+        with:
+          client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
+          private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
       # repo-cutout: scan-build
       # <repo>
       - name: Restore exact signed native package receipt
@@ -964,13 +973,13 @@ jobs:
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID || vars.APPLE_TEAM_ID }}
           GITHUB_TOKEN: ${{ github.token }}
-          NATIVE_PUBLISH_RUN_ATTEMPT: ${{ steps.restore-native.outputs.publish-run-attempt }}
           SCAN_PACKAGE: ${{ inputs.scan-package }}
           SCAN_PUBLISH_RUN_ID: ${{ inputs.scan-publish-run-id }}
           SCAN_SOURCE_SHA: ${{ inputs.scan-source-sha }}
           SCAN_STAGE_ID: ${{ inputs.scan-stage-id }}
           SCAN_STAGE_SHA1: ${{ inputs.scan-stage-sha1 }}
           SCAN_VERSION: ${{ inputs.scan-version }}
+          RELEASE_LEDGER_TOKEN: ${{ steps.release-ledger-read-app.outputs.token }}
           SOCKET_API_TOKEN: ${{ secrets.SOCKET_API_TOKEN_FOR_CLI_AND_SFW }}
         run: node scripts/fleet/npm/scan/staged.mts --json
       - name: Upload scan receipt

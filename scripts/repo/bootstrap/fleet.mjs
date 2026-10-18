@@ -13291,7 +13291,11 @@ const MCP_PROVIDERS = {
         clientId: '1601185624273.8899143856786',
         callbackPort: 3118,
       },
-      codex: { kind: 'oauth' },
+      codex: {
+        kind: 'oauth',
+        clientId: '1292389187026.12337285527779',
+        callbackPort: 3118,
+      },
       opencode: {
         kind: 'oauth',
         clientId: '1601185624273.8899143856786',
