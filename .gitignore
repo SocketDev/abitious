@@ -2635,6 +2635,10 @@ opencode.json
 .github/actions/fleet/github-release-app-token/mint-app-installation-token.d.mts
 .github/actions/fleet/github-release-app-token/mint-app-installation-token.mjs
 .github/actions/fleet/github-release-assets/action.yml
+.github/actions/fleet/github-release-ledger-app-token/action.yml
+.github/actions/fleet/github-release-ledger-app-token/mint-app-installation-token.mjs
+.github/actions/fleet/github-release-ledger-read-app-token/action.yml
+.github/actions/fleet/github-release-ledger-read-app-token/mint-app-installation-token.mjs
 .github/actions/fleet/github-release/action.yml
 .github/actions/fleet/github-release/cut-immutable-release.d.mts
 .github/actions/fleet/github-release/cut-immutable-release.mjs
@@ -2776,6 +2780,7 @@ docs/fleet/agents.md/published-dist-is-readable.md
 docs/fleet/agents.md/pull-request-target.md
 docs/fleet/agents.md/push-policy.md
 docs/fleet/agents.md/quiet-guards.md
+docs/fleet/agents.md/release-gate-removal-log.md
 docs/fleet/agents.md/release-pins-are-canonical.md
 docs/fleet/agents.md/release-tag-escape-hatch.md
 docs/fleet/agents.md/release-vs-cascade.md
@@ -4470,6 +4475,7 @@ scripts/fleet/mcp/connect.mts
 scripts/fleet/mcp/connection-process.mts
 scripts/fleet/mcp/connection-service.mts
 scripts/fleet/mcp/connection-state.mts
+scripts/fleet/mcp/connection/open-url.mts
 scripts/fleet/mcp/connection/process.mts
 scripts/fleet/mcp/connection/service.mts
 scripts/fleet/mcp/connection/state.mts
