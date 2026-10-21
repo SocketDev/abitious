@@ -56,10 +56,10 @@ runs:
         node "${GITHUB_ACTION_PATH}/export-fleet-env.mjs" >> "$GITHUB_ENV"
 
     - name: Check GitHub platform health
-      uses: ./.github/actions/fleet/github-status-check
+      uses: $/.github/actions/fleet/github-status-check
 
     - name: Setup debug
-      uses: ./.github/actions/fleet/debug
+      uses: $/.github/actions/fleet/debug
       with:
         debug: ${{ inputs.debug }}
 

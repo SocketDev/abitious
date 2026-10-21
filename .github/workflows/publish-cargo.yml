@@ -68,15 +68,19 @@ jobs:
           git checkout -q --detach FETCH_HEAD
 
       - name: Set up and install
-        uses: ./.github/actions/fleet/setup-and-install
+        uses: $/.github/actions/fleet/setup-and-install
+        with:
+          socket-api-token: ${{ secrets.SOCKET_API_TOKEN_FOR_CLI_AND_SFW }}
+          payload-token-client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
+          payload-token-private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
       - name: Rust toolchain
-        uses: ./.github/actions/fleet/setup-rust-toolchain
+        uses: $/.github/actions/fleet/setup-rust-toolchain
         with:
           channel: nightly
       - name: Mint PR branch token for nightly bump
         if: ${{ inputs.nightly-version != '' }}
         id: pr-branch-app
-        uses: ./.github/actions/fleet/github-pr-branch-app-token
+        uses: $/.github/actions/fleet/github-pr-branch-app-token
         with:
           client-id: ${{ secrets.SOCKET_PR_CLIENT_ID || vars.SOCKET_PR_CLIENT_ID }}
           private-key: ${{ secrets.SOCKET_PR_APP_PRIVATE_KEY }}
@@ -84,7 +88,7 @@ jobs:
       - name: Mint release token for nightly bump
         if: ${{ inputs.nightly-version != '' }}
         id: release-app
-        uses: ./.github/actions/fleet/github-release-app-token
+        uses: $/.github/actions/fleet/github-release-app-token
         with:
           client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
           private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
@@ -95,7 +99,7 @@ jobs:
       # deleted out from under our pin.
       - name: 'Authenticate to crates.io'
         id: auth
-        uses: ./.github/actions/fleet/cargo/auth
+        uses: $/.github/actions/fleet/cargo/auth
       - name: Stage and digest crate
         env:
           GH_TOKEN: ${{ inputs.nightly-version != '' && steps.release-app.outputs.token || github.token }}
@@ -153,6 +157,6 @@ jobs:
           CRATES_IO_TOKEN: ${{ steps.auth.outputs.token }}
         run: node scripts/fleet/registry/cargo/trusted-token.mts --revoke
       - name: Attest build provenance (.crate)
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2 (2025-06-11)
+        uses: actions/attest-build-provenance@v2.4.0
         with:
           subject-path: target/package/*.crate
