@@ -51,6 +51,10 @@
     "check:types": "node scripts/fleet/check.mts --category=types",
     "check:update": "node scripts/fleet/commands/run.mts check update",
     "check:workspace-installation": "node scripts/fleet/check/workspace-installation.mts",
+    "chrome:advice": "node scripts/fleet/ai/browser/agent/jev/run.mts",
+    "chrome:bridge": "node scripts/fleet/ai/browser/bridge/cli.mts",
+    "chrome:open-setup": "node scripts/fleet/ai/browser/open-setup.mts",
+    "chrome:session": "node scripts/fleet/mcp/chrome/session/run.mts",
     "ci:check": "node scripts/fleet/commands/run.mts ci check",
     "ci:diagnose": "node .claude/skills/fleet/agent-ci/run.mts",
     "ci:fix": "node scripts/fleet/ci/fix/run.mts",
@@ -244,11 +248,7 @@
     "workflow:actions:lock:install": "node scripts/fleet/workflow/actions-lock/install.mts",
     "worktree:create": "node scripts/fleet/worktree/create/run.mts",
     "worktree:discard-reviewed": "node scripts/fleet/worktree/discard-reviewed/run.mts",
-    "worktree:land": "node scripts/fleet/worktree/land/run.mts",
-    "chrome:session": "node scripts/fleet/mcp/chrome/session/run.mts",
-    "chrome:advice": "node scripts/fleet/ai/browser/agent/jev/run.mts",
-    "chrome:bridge": "node scripts/fleet/ai/browser/bridge/cli.mts",
-    "chrome:open-setup": "node scripts/fleet/ai/browser/open-setup.mts"
+    "worktree:land": "node scripts/fleet/worktree/land/run.mts"
   },
   "devDependencies": {
     "@bcoe/v8-coverage": "catalog:",
