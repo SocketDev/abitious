@@ -244,7 +244,11 @@
     "workflow:actions:lock:install": "node scripts/fleet/workflow/actions-lock/install.mts",
     "worktree:create": "node scripts/fleet/worktree/create/run.mts",
     "worktree:discard-reviewed": "node scripts/fleet/worktree/discard-reviewed/run.mts",
-    "worktree:land": "node scripts/fleet/worktree/land/run.mts"
+    "worktree:land": "node scripts/fleet/worktree/land/run.mts",
+    "chrome:session": "node scripts/fleet/mcp/chrome/session/run.mts",
+    "chrome:advice": "node scripts/fleet/ai/browser/agent/jev/run.mts",
+    "chrome:bridge": "node scripts/fleet/ai/browser/bridge/cli.mts",
+    "chrome:open-setup": "node scripts/fleet/ai/browser/open-setup.mts"
   },
   "devDependencies": {
     "@bcoe/v8-coverage": "catalog:",
