@@ -68,19 +68,19 @@ jobs:
           git checkout -q --detach FETCH_HEAD
 
       - name: Set up and install
-        uses: $/.github/actions/fleet/setup-and-install
+        uses: ./.github/actions/fleet/setup-and-install
         with:
           socket-api-token: ${{ secrets.SOCKET_API_TOKEN_FOR_CLI_AND_SFW }}
           payload-token-client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
           payload-token-private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
       - name: Rust toolchain
-        uses: $/.github/actions/fleet/setup-rust-toolchain
+        uses: ./.github/actions/fleet/setup-rust-toolchain
         with:
           channel: nightly
       - name: Mint PR branch token for nightly bump
         if: ${{ inputs.nightly-version != '' }}
         id: pr-branch-app
-        uses: $/.github/actions/fleet/github-pr-branch-app-token
+        uses: ./.github/actions/fleet/github-pr-branch-app-token
         with:
           client-id: ${{ secrets.SOCKET_PR_CLIENT_ID || vars.SOCKET_PR_CLIENT_ID }}
           private-key: ${{ secrets.SOCKET_PR_APP_PRIVATE_KEY }}
@@ -88,7 +88,7 @@ jobs:
       - name: Mint release token for nightly bump
         if: ${{ inputs.nightly-version != '' }}
         id: release-app
-        uses: $/.github/actions/fleet/github-release-app-token
+        uses: ./.github/actions/fleet/github-release-app-token
         with:
           client-id: ${{ secrets.SOCKET_RELEASE_CLIENT_ID || vars.SOCKET_RELEASE_CLIENT_ID }}
           private-key: ${{ secrets.SOCKET_RELEASE_APP_PRIVATE_KEY }}
@@ -99,21 +99,14 @@ jobs:
       # deleted out from under our pin.
       - name: 'Authenticate to crates.io'
         id: auth
-        uses: $/.github/actions/fleet/cargo/auth
-      - name: Stage and digest crate
+        uses: ./.github/actions/fleet/cargo/auth
+      - name: Publish crate
         env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
           GH_TOKEN: ${{ inputs.nightly-version != '' && steps.release-app.outputs.token || github.token }}
           PR_APP_TOKEN: ${{ steps.pr-branch-app.outputs.token }}
           RELEASE_APP_TOKEN: ${{ steps.release-app.outputs.token }}
           NIGHTLY_VERSION: ${{ inputs.nightly-version }}
-        run: |
-          args=(--staged)
-          if [ -n "$NIGHTLY_VERSION" ]; then args+=(--bump --nightly-version "$NIGHTLY_VERSION"); fi
-          node scripts/fleet/registry/cargo/publish/run.mts "${args[@]}"
-      - name: Approve verified crate
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-          GH_TOKEN: ${{ inputs.nightly-version != '' && steps.release-app.outputs.token || github.token }}
         # The rustup cargo goes AHEAD of the SFW shim for the publish leg:
         # the shim's proxy interposes the crates.io publish PUT (uploads are
         # outside its registry-read bypass), and cargo then fails TLS
@@ -122,7 +115,9 @@ jobs:
         # publish traffic with an OIDC token — no supply-chain read surface.
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
-          node scripts/fleet/registry/cargo/publish/run.mts --approve --yes
+          args=(--direct)
+          if [ -n "$NIGHTLY_VERSION" ]; then args+=(--bump --nightly-version "$NIGHTLY_VERSION"); fi
+          node scripts/fleet/registry/cargo/publish/run.mts "${args[@]}"
       # The publish must leave the crate owned by the fleet team, not one
       # person's account. The owners read is public, so this needs no
       # credential; failing loud sends the fix to the humans who can do it.
@@ -157,6 +152,6 @@ jobs:
           CRATES_IO_TOKEN: ${{ steps.auth.outputs.token }}
         run: node scripts/fleet/registry/cargo/trusted-token.mts --revoke
       - name: Attest build provenance (.crate)
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2 (2025-06-11)
         with:
           subject-path: target/package/*.crate

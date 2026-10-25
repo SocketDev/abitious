@@ -85,7 +85,7 @@ runs:
   using: 'composite'
   steps:
     - name: Checkout
-      uses: $/.github/actions/fleet/checkout
+      uses: ./.github/actions/fleet/checkout
       with:
         checkout: ${{ inputs.checkout }}
         fetch-depth: ${{ inputs.checkout-fetch-depth }}
@@ -97,7 +97,7 @@ runs:
         payload-token-private-key: ${{ inputs.payload-token-private-key }}
 
     - name: Setup environment
-      uses: $/.github/actions/fleet/setup
+      uses: ./.github/actions/fleet/setup
       with:
         debug: ${{ inputs.debug }}
         node-version: ${{ inputs.node-version }}
@@ -185,7 +185,7 @@ runs:
       if: inputs.cache == 'true'
       # Restore-only. Exports PNPM_STORE_PATH / PNPM_STORE_CACHE_KEY /
       # PNPM_STORE_CACHE_HIT via $GITHUB_ENV for the save step below.
-      uses: $/.github/actions/fleet/cache-pnpm-store
+      uses: ./.github/actions/fleet/cache-pnpm-store
       with:
         working-directory: ${{ inputs.working-directory }}
 
@@ -204,7 +204,7 @@ runs:
     - name: Mint fleet payload read token
       id: payload-token
       if: inputs.payload-token-client-id != '' && inputs.payload-token-private-key != ''
-      uses: $/.github/actions/fleet/github-payload-app-token
+      uses: ./.github/actions/fleet/github-payload-app-token
       with:
         client-id: ${{ inputs.payload-token-client-id }}
         private-key: ${{ inputs.payload-token-private-key }}
@@ -218,7 +218,7 @@ runs:
       run: node "$FLEET_SETUP_ACTION_PATH/setup-runner-resources.mts"
 
     - name: Install dependencies
-      uses: $/.github/actions/fleet/install
+      uses: ./.github/actions/fleet/install
       with:
         fleet-payload-token: ${{ steps.payload-token.outputs.token }}
         working-directory: ${{ inputs.working-directory }}

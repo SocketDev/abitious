@@ -176,7 +176,7 @@ runs:
       # alone) — see github-payload-app-token's own description.
       id: payload-token
       if: steps.detect-hydration.outputs.needed == 'true' && inputs.payload-token-client-id != '' && inputs.payload-token-private-key != ''
-      uses: $/.github/actions/fleet/github-payload-app-token
+      uses: ./.github/actions/fleet/github-payload-app-token
       with:
         client-id: ${{ inputs.payload-token-client-id }}
         private-key: ${{ inputs.payload-token-private-key }}
