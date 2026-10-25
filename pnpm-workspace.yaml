@@ -289,6 +289,9 @@ trustPolicyExclude:
   - '@tsrs/linux-x64-gnu@0.18.0-ts7.1.0-dev.20260929'
   - '@tsrs/linux-x64-musl@0.18.0-ts7.1.0-dev.20260929'
   - 'tsrs@0.18.0-ts7.1.0-dev.20260929'
+  - '@socketregistry/packageurl-js@1.7.0'
+  - '@socketsecurity/lib@7.2.0'
+  - '@socketsecurity/sdk@4.3.0'
 enableGlobalVirtualStore: true
 
 # Soak time for external-tools updates: minutes a release must have
